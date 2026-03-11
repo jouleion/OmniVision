@@ -1,66 +1,41 @@
-#include <Arduino.h>
-#include <Arduino_FreeRTOS.h>
-#include "TimeOfFlightSensor.h"
-#include <vector>
+#include <Wire.h>
+#include <VL53L1X.h>
 
-// Vector to hold multiple TOF sensor objects
-std::vector<TimeOfFlightSensor> tofSensors;
-uint8_t tofSensorPins[] = {3, 4, 5}; // Example pins for TOF sensors'
+VL53L1X sensor;
+#define LPN_PIN 2  // Your LPN pin → Arduino pin 2
 
 void setup() {
     Serial.begin(9600);
-    Serial.println("In Setup function");
-
-    // Initialize multiple TOF sensors
-    const int numSensors = 3; // Change this value to set the number of sensors
-    for (int i = 0; i < numSensors; ++i) {
-        tofSensors.emplace_back(i + 1, tofSensorPins[i]); // Example: Assign unique IDs and pins
+    
+    // CRITICAL: LPN reset sequence
+    pinMode(LPN_PIN, OUTPUT);
+    digitalWrite(LPN_PIN, LOW);   // Shutdown
+    delay(500);
+    digitalWrite(LPN_PIN, HIGH);  // Enable
+    delay(1000);  // 1 SECOND power-up!!!
+    
+    Wire.begin();
+    Wire.setClock(50000);  // 50kHz - SUPER SLOW for Uno
+    
+    Serial.println("VL53L1X Pololu - LPN reset");
+    
+    if (!sensor.init()) {
+        Serial.println("init FAILED - CHECK 3.3V + LPN wiring");
+        while(1);
     }
-
-    // Create tasks
-    // xTaskCreate(TaskFunction, Name, StackDepth, Parameters, Priority, TaskHandle)
-    xTaskCreate(TaskReadTOF, "ReadTOF", 100, NULL, 1, NULL);
-    xTaskCreate(TaskSendData, "SendData", 100, NULL, 2, NULL);
-    xTaskCreate(TaskProcessData, "ProcessData", 100, NULL, 3, NULL);
-    xTaskCreate(TaskActuation, "Actuation", 100, NULL, 4, NULL);
+    
+    Serial.println("Sensor OK!");
+    sensor.setTimeout(1000);
+    sensor.startContinuous(100);
 }
 
 void loop() {
-    // Empty loop as tasks handle the functionality
-}
-
-static void TaskReadTOF(void* pvParameters) {
-    // pvParameters is a pointer to the parameters passed during task creation.
-    // It can be used to pass data to the task, but here it is unused (NULL).
-    while (1) {
-        for (const auto& sensor : tofSensors) {
-            int tofReading = sensor.read();
-            Serial.print("TOF Sensor ");
-            Serial.print(sensor.getId()); // Assuming getId() returns the sensor ID
-            Serial.print(" Reading: ");
-            Serial.println(tofReading);
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+    int distance = sensor.read();
+    if (sensor.timeoutOccurred()) {
+        Serial.println("TIMEOUT");
+    } else {
+        Serial.print(distance);
+        Serial.println(" mm");
     }
-}
-
-static void TaskSendData(void* pvParameters) {
-    while (1) {
-        Serial.println("Sending data...");
-        vTaskDelay(200 / portTICK_PERIOD_MS);
-    }
-}
-
-static void TaskProcessData(void* pvParameters) {
-    while (1) {
-        Serial.println("Processing data...");
-        vTaskDelay(300 / portTICK_PERIOD_MS);
-    }
-}
-
-static void TaskActuation(void* pvParameters) {
-    while (1) {
-        Serial.println("Actuating...");
-        vTaskDelay(400 / portTICK_PERIOD_MS);
-    }
+    delay(200);
 }

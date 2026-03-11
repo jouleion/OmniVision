@@ -1,0 +1,54 @@
+#include <FreeRTOS.h>
+#include <task.h>
+
+void setup () {
+
+    xTaskCreate(TaskReadTOF, "ReadTOF", 2048, NULL, 1, NULL);
+    xTaskCreate(TaskSendData, "SendData", 1024, NULL, 2, NULL);
+    xTaskCreate(TaskProcessData, "ProcessData", 1024, NULL, 3, NULL);
+    xTaskCreate(TaskActuation, "Actuation", 1024, NULL, 4, NULL);
+
+}
+
+void loop () {
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+}
+
+static void TaskReadTOF(void* pvParameters) {
+    (void)pvParameters;
+    while (1) {
+        if (sensor.dataReady()) {
+            VL53L1X_Result_t result;
+            sensor.read(&result);
+
+            Serial.print("[RTOS] Distance: ");
+            Serial.print(result.range_mm);
+            Serial.println(" mm");
+        }
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+    }
+}
+
+static void TaskSendData(void* pvParameters) {
+    (void)pvParameters;
+    while (1) {
+        Serial.println("[RTOS] Sending data...");
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+}
+
+static void TaskProcessData(void* pvParameters) {
+    (void)pvParameters;
+    while (1) {
+        Serial.println("[RTOS] Processing data...");
+        vTaskDelay(750 / portTICK_PERIOD_MS);
+    }
+}
+
+static void TaskActuation(void* pvParameters) {
+    (void)pvParameters;
+    while (1) {
+        Serial.println("[RTOS] Actuating...");
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}

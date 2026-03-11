@@ -12,35 +12,32 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug",
-            "executable": "C:/Users/julia/Start/(1) Code/Pervasive Computing/OmniVision/.pio/build/rpipico2/firmware.elf",
-            "projectEnvName": "rpipico2",
-            "toolchainBinDir": "C:/Users/julia/.platformio/packages/toolchain-rp2040-earlephilhower/bin",
+            "executable": "C:/Users/julia/Start/(1) Code/Pervasive Computing/OmniVision/.pio/build/unoR3/firmware.elf",
+            "projectEnvName": "unoR3",
+            "toolchainBinDir": "C:/Users/julia/.platformio/packages/toolchain-atmelavr/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/julia/.platformio/platforms/raspberrypi/misc/svd/rp2350.svd",
             "preLaunchTask": {
                 "type": "PlatformIO",
-                "task": "Pre-Debug"
+                "task": "Pre-Debug (unoR3)"
             }
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
-            "executable": "C:/Users/julia/Start/(1) Code/Pervasive Computing/OmniVision/.pio/build/rpipico2/firmware.elf",
-            "projectEnvName": "rpipico2",
-            "toolchainBinDir": "C:/Users/julia/.platformio/packages/toolchain-rp2040-earlephilhower/bin",
-            "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/julia/.platformio/platforms/raspberrypi/misc/svd/rp2350.svd"
+            "executable": "C:/Users/julia/Start/(1) Code/Pervasive Computing/OmniVision/.pio/build/unoR3/firmware.elf",
+            "projectEnvName": "unoR3",
+            "toolchainBinDir": "C:/Users/julia/.platformio/packages/toolchain-atmelavr/bin",
+            "internalConsoleOptions": "openOnSessionStart"
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (without uploading)",
-            "executable": "C:/Users/julia/Start/(1) Code/Pervasive Computing/OmniVision/.pio/build/rpipico2/firmware.elf",
-            "projectEnvName": "rpipico2",
-            "toolchainBinDir": "C:/Users/julia/.platformio/packages/toolchain-rp2040-earlephilhower/bin",
+            "executable": "C:/Users/julia/Start/(1) Code/Pervasive Computing/OmniVision/.pio/build/unoR3/firmware.elf",
+            "projectEnvName": "unoR3",
+            "toolchainBinDir": "C:/Users/julia/.platformio/packages/toolchain-atmelavr/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/julia/.platformio/platforms/raspberrypi/misc/svd/rp2350.svd",
             "loadMode": "manual"
         }
     ]
