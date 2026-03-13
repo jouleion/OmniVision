@@ -46,15 +46,16 @@ void setup() {
 
     // I2C: sda=5, scl=6
     Wire.begin(SDA_PIN_1, SCL_PIN_1);
-    Wire.setClock(50000);  // 50kHz (super reliable)
+    Wire.setClock(800000);  // 100kHz
 
     Wire1.begin(SDA_PIN_2, SCL_PIN_2);
-    Wire1.setClock(50000);  // 50kHz (super reliable)
+    Wire1.setClock(800000);  // 100kHz
 
 
     // VL53L7CX init sensor 1
     Serial.print("VL53L7CX 1 init...");
-    int init_status = sensor1.vl53l7cx_init();
+    sensor1.begin();
+    int init_status = sensor1.init_sensor();
 
     if (init_status != VL53L7CX_STATUS_OK) {
         Serial.print("FAILED 1 (status: "); Serial.print(init_status); Serial.println(")");
@@ -100,7 +101,8 @@ void setup() {
     // sensor 2
     // VL53L7CX init sensor 2
     Serial.print("VL53L7CX 2 init...");
-    init_status = sensor2.vl53l7cx_init();
+    sensor2.begin();
+    init_status = sensor2.init_sensor();
 
     if (init_status != VL53L7CX_STATUS_OK) {
         Serial.print("FAILED 2 (status: "); Serial.print(init_status); Serial.println(")");
