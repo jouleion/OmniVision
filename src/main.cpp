@@ -24,6 +24,14 @@ unsigned long lastBlink = 0;
 void nonBlockingBlinkError();
 void readToFSensor(VL53L7CX &sensor, uint8_t sensorId);
 
+// DETECTION CODE--------------
+uint16_t combinedGrid[128];
+uint16_t sensor1Data[64];
+uint16_t sensor2Data[64];
+bool sensor1Ready = false;
+bool sensor2Ready = false;
+//-----------------------------
+
 void setup() {
     Serial.begin(115200);
     delay(3000);
@@ -141,10 +149,51 @@ void setup() {
     }
 }
 
+// DETECTION CODE------------------------------------------------------------------------------------------------
+void detectCloseObject(uint16_t *grid, int startCol, int endCol, const char* label, int threshold = 1000, float percentage = 0.35) {
+    int count = 0;
+    int total = 0;
+
+    for (int row = 0; row < 8; row++) {
+        for (int col = startCol; col < endCol; col++) {
+            int idx = row * 16 + col;
+            uint16_t val = grid[idx];
+
+            if (val == 0) continue;
+
+            total++;
+            if (val < threshold) count++;
+        }
+    }
+
+    if (total == 0) return;
+
+    if (count >= total * percentage) {
+        Serial.print(label);
+        Serial.println(": OBJECT DETECTED");
+    }
+}
+// -------------------------------------------------------------------------------------------------------------
+
 
 void loop() {
     readToFSensor(sensor1, 1);
     readToFSensor(sensor2, 2);
+
+    // DETECTION CODE------------------------------------------------
+    if (sensor1Ready && sensor2Ready) {
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                combinedGrid[row * 16 + col] = sensor1Data[row * 8 + col];
+                combinedGrid[row * 16 + col + 8] = sensor2Data[row * 8 + col];
+            }
+        }
+
+        detectCloseObject(combinedGrid, 0, 5, "LEFT");
+        detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
+        detectCloseObject(combinedGrid, 11, 16, "RIGHT");
+    }
+    //----------------------------------------------------------------
 }
 
 
@@ -161,6 +210,23 @@ void readToFSensor(VL53L7CX &sensor, uint8_t sensorId) {
             Serial.print(sensorId); 
             Serial.print(": ");
             Serial.println("\n8x8 GRID");
+            
+            // DETECTION CODE----------------------------------
+            if (sensorId == 1) {
+                for (int i = 0; i < 64; i++) {
+                    sensor1Data[i] = results.distance_mm[i];
+                }
+                sensor1Ready = true;
+            }
+
+            if (sensorId == 2) {
+                for (int i = 0; i < 64; i++) {
+                    sensor2Data[i] = results.distance_mm[i];
+                }
+                sensor2Ready = true;
+            }
+            //--------------------------------------------------
+            
             // Print 8x8 distance grid (64 zones total)
             for (int row = 0; row < 8; row++) {
                 for (int col = 0; col < 8; col++) {
