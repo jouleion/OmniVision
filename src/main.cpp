@@ -2,17 +2,18 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <vl53l7cx_class.h>  // Latest STM32duino header
+#include <vector>
+#include <array>
 
+// setup built in NeoPixel
 #define NEOPIXEL_PIN 21
 #define NUM_PIXELS 1
 Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
-// use the core-provided I2C objects `Wire` and `Wire1`
-
+// setup two I2C busses.
 #define LPn_PIN_1 4
 #define SDA_PIN_1 5
 #define SCL_PIN_1 6
-
 VL53L7CX sensor1(&Wire, LPn_PIN_1);
 
 #define LPn_PIN_2 7
@@ -20,29 +21,36 @@ VL53L7CX sensor1(&Wire, LPn_PIN_1);
 #define SCL_PIN_2 2
 VL53L7CX sensor2(&Wire1, LPn_PIN_2);
 
+// funky led functions.
 unsigned long lastBlink = 0;
 void nonBlockingBlinkError();
 void readToFSensor(VL53L7CX &sensor, uint8_t sensorId);
 
-// DETECTION CODE--------------
+// Sensor data arrays for object detection.
 uint16_t combinedGrid[128];
 uint16_t sensor1Data[64];
 uint16_t sensor2Data[64];
 bool sensor1Ready = false;
 bool sensor2Ready = false;
-//-----------------------------
+
+// larger buffer
+uint8_t bufferSize = 10; // 10 frames of 128.
+// a vector with an array in it of 128 values. the vector can be any length (dynamic).
+std::vector<std::array<uint16_t, 128>> buffer(bufferSize);
 
 void setup() {
+    // serial setup
     Serial.begin(115200);
     delay(3000);
     Serial.println("ESP32-S3 + VL53L7CX v1.0.3 + NeoPixel");
     while(!Serial);
 
-    // NeoPixel
+    // NeoPixel setup
     pixels.begin();
     pixels.clear();
     pixels.show();
 
+    // Wake up lights
     pixels.setPixelColor(0, pixels.Color(0, 0, 255));  // Blue
     pixels.show();
     delay(100);
@@ -54,11 +62,11 @@ void setup() {
 
     // I2C: sda=5, scl=6
     Wire.begin(SDA_PIN_1, SCL_PIN_1);
-    Wire.setClock(800000);  // 100kHz
+    Wire.setClock(800000);  // 800kHz
 
+    // I2C: sda=3, scl=2
     Wire1.begin(SDA_PIN_2, SCL_PIN_2);
-    Wire1.setClock(800000);  // 100kHz
-
+    Wire1.setClock(800000);  // 800kHz
 
     // VL53L7CX init sensor 1
     Serial.print("VL53L7CX 1 init...");
@@ -188,6 +196,14 @@ void loop() {
                 combinedGrid[row * 16 + col + 8] = sensor2Data[row * 8 + col];
             }
         }
+        // add combined grid to the buffer.
+        // addToRawBuffer();
+
+        // filter: LPF
+        // timeAverage(buffer);
+        
+
+        
 
         detectCloseObject(combinedGrid, 0, 5, "LEFT");
         detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
@@ -244,6 +260,40 @@ void readToFSensor(VL53L7CX &sensor, uint8_t sensorId) {
                 Serial.println();  // New line after row
             }
         }
+    }
+}
+
+void timeAverage(std::vector<std::array<uint16_t, 128>> &buffer) {
+    // do a low pass filter on each data value over time. so i=1 for buffer[0][i], buffer[1][i], buffer[2][i]... up to buffer[n][i]. average them and store in averagedGrid[i].
+    // std::array<uint16_t, 128> averagedGrid;
+    // for (int i = 0; i < 128; i++) {
+    //     uint32_t sum = 0;
+    //     int count = 0;
+    //     for (const auto& frame : buffer) {
+    //         if (frame[i] > 0) { // only consider valid readings
+    //             sum += frame[i];
+    //             count++;
+    //         }
+    //     }
+    //     averagedGrid[i] = (count > 0) ? (sum / count) : 0; // average or zero if no valid data
+    // }
+
+}
+
+void addToRawBuffer(){
+    // Add new frame to buffer.
+    std::array<uint16_t, 128> newFrame;
+    // Use a circular overwrite when full to avoid expensive shifts; buffer overwrites oldest frame circularly when full.
+    std::copy(std::begin(combinedGrid), std::end(combinedGrid), std::begin(newFrame));
+
+    if (buffer.size() < bufferSize) {
+        // still space: append
+        buffer.push_back(newFrame);
+    } else {
+        // buffer full: overwrite oldest entry in-place using a rotating index
+        static size_t insertPos = 0; // index of next slot to overwrite (persists)
+        buffer[insertPos] = newFrame; // store new frame into oldest position
+        insertPos = (insertPos + 1) % bufferSize; // advance and wrap index
     }
 }
 
