@@ -56,6 +56,12 @@ void ToFSensor::setSize(SensorSize newSize) {
     sensor.vl53l7cx_set_resolution((size == SIZE_8X8) ? VL53L7CX_RESOLUTION_8X8 : VL53L7CX_RESOLUTION_4X4);
 }
 
+void ToFSensor::setFrequency(uint8_t frequency) {
+    if(frequency > 60) frequency = 60;
+    if(frequency < 1) frequency = 1;
+    sensor.vl53l7cx_set_ranging_frequency_hz(frequency);
+}
+
 bool ToFSensor::getSensorReady() {
     uint8_t new_data_ready = 0;
     sensor.vl53l7cx_check_data_ready(&new_data_ready);

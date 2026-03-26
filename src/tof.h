@@ -18,6 +18,7 @@ class ToFSensor {
         std::vector<uint16_t> fetchRawData();
 
         void setSize(SensorSize newSize);
+        void setFrequency(uint8_t frequency);
 
     private:
         TwoWire *wire;
