@@ -4,48 +4,39 @@
 #include <vl53l7cx_class.h>  // Latest STM32duino header
 #include <vector>
 #include <array>
+
+#include "system_parameters.h"
 #include "tof.h"
+#include "echo_sensor.h"
 
 // setup built in NeoPixel
 #define NEOPIXEL_PIN 21
 #define NUM_PIXELS 1
 Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
+SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
+uint8_t numberOfSensors = 2;
+
 // setup two I2C busses.
 #define LPn_PIN_1 4
 #define SDA_PIN_1 5
 #define SCL_PIN_1 6
-ToFSensor sensor1(&Wire, LPn_PIN_1, SIZE_8X8, 1);
+ToFSensor sensor1(&Wire, LPn_PIN_1, sensorSize, 1);
 
 #define LPn_PIN_2 7
 #define SDA_PIN_2 3
 #define SCL_PIN_2 2
-ToFSensor sensor2(&Wire1, LPn_PIN_2, SIZE_8X8, 2);
+ToFSensor sensor2(&Wire1, LPn_PIN_2, sensorSize, 2);
 
-// funky led functions.
-unsigned long lastBlink = 0;
-void dumpDataFrame(std::vector<uint16_t> &data);
-void timeAverage(std::vector<std::array<uint16_t, 128>> &buffer);
+// data buffer
+uint8_t bufferIndex = 0;
+uint8_t bufferLength = 12;
+// list of lists. (dynamic size) init directly based on size, and combinedframe resolution
+std::vector<std::vector<uint16_t>> rawDataBuffer(
+    bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
+);
 
-// Sensor data arrays for object detection.
-uint16_t combinedGrid[128];
-uint16_t sensor1Data[64];
-uint16_t sensor2Data[64];
-bool sensor1Ready = false;
-bool sensor2Ready = false;
-
-// larger buffer
-uint8_t bufferSize = 10; // 10 frames of 128.
-// a vector with an array in it of 128 values. the vector can be any length (dynamic).
-std::vector<std::array<uint16_t, 128>> buffer(bufferSize);
-
-void setup() {
-    // serial setup
-    Serial.begin(115200);
-    delay(3000);
-    Serial.println("ESP32-S3 + VL53L7CX v1.0.3 + NeoPixel");
-    while(!Serial);
-
+void setupLed(){
     // NeoPixel setup
     pixels.begin();
     pixels.clear();
@@ -60,6 +51,16 @@ void setup() {
     delay(100);
     pixels.setPixelColor(0, pixels.Color(0, 0, 255));  // Blue
     pixels.show();
+}
+
+void setup() {
+    // serial setup
+    Serial.begin(115200);
+    delay(3000);
+    Serial.println("ESP32-S3 + VL53L7CX v1.0.3 + NeoPixel");
+    while(!Serial);
+
+    setupLed();
 
     // I2C: sda=5, scl=6
     Wire.begin(SDA_PIN_1, SCL_PIN_1);
@@ -70,16 +71,16 @@ void setup() {
     Wire1.setClock(800000);  // 800kHz
 
     // start sensors, if fail -> Red
-    if(!sensor1.begin(SIZE_8X8, 60, 5, 80)) {
+    if(!sensor1.begin(sensorSize, 60, 5, 80)) {
         pixels.setPixelColor(0, pixels.Color(255, 0, 0));
         pixels.show();
-        delay(5000);
+        delay(2000);
         esp_restart();
     }
-    if(!sensor2.begin(SIZE_8X8, 60, 5, 80)) {
+    if(!sensor2.begin(sensorSize, 60, 5, 80)) {
         pixels.setPixelColor(0, pixels.Color(255, 0, 0));
         pixels.show();
-        delay(5000);
+        delay(2000);
         esp_restart();
     }
 
@@ -115,98 +116,165 @@ void detectCloseObject(uint16_t *grid, int startCol, int endCol, const char* lab
 
 
 
-void dumpDataFrame(std::vector<uint16_t> &data) {
+void dumpDataFrame(const std::vector<uint16_t> &data) {
     Serial.println("Data Frame:");
     for (size_t i = 0; i < data.size(); ++i) {
         Serial.print(data[i]);
-        Serial.print(" ");
-        if ((i + 1) % 8 == 0) {
+        Serial.print(", ");
+
+        // add newlime after correct length.
+        uint8_t rowLength = (sensorSize == SIZE_8X8) ? 8 : 4;
+        if ((i + 1) % rowLength == 0) {
             Serial.println();
         }
     }
 }
 
-void timeAverage(std::vector<std::array<uint16_t, 128>> &buffer) {
-    // do a low pass filter on each data value over time. so i=1 for buffer[0][i], buffer[1][i], buffer[2][i]... up to buffer[n][i]. average them and store in averagedGrid[i].
-    // std::array<uint16_t, 128> averagedGrid;
-    // for (int i = 0; i < 128; i++) {
-    //     uint32_t sum = 0;
-    //     int count = 0;
-    //     for (const auto& frame : buffer) {
-    //         if (frame[i] > 0) { // only consider valid readings
-    //             sum += frame[i];
-    //             count++;
-    //         }
-    //     }
-    //     averagedGrid[i] = (count > 0) ? (sum / count) : 0; // average or zero if no valid data
-    // }
+void giveUserFeedback(uint16_t leftIntensity, uint16_t middleIntensity, uint16_t rightIntensity) {
+    #ifdef SPEAKER_OUTPUT
+        // for large distance, speaker only
+        
+
+
+        #ifdef VIBRATION_OUTPUT
+            // for small distance, vibration + speaker
+            // process intensity to vibration too.
+        #endif
+    #endif
 
 }
 
-void addToRawBuffer(){
-    // Add new frame to buffer.
-    std::array<uint16_t, 128> newFrame;
-    // Use a circular overwrite when full to avoid expensive shifts; buffer overwrites oldest frame circularly when full.
-    std::copy(std::begin(combinedGrid), std::end(combinedGrid), std::begin(newFrame));
+void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
+    // combine two same-size grids into one contiguous grid: grid1 then grid2
+    size_t n1 = grid1.size();
+    size_t n2 = grid2.size();
+    if (combined.size() != n1 + n2) return; // caller should size combined appropriately
 
-    if (buffer.size() < bufferSize) {
-        // still space: append
-        buffer.push_back(newFrame);
-    } else {
-        // buffer full: overwrite oldest entry in-place using a rotating index
-        static size_t insertPos = 0; // index of next slot to overwrite (persists)
-        buffer[insertPos] = newFrame; // store new frame into oldest position
-        insertPos = (insertPos + 1) % bufferSize; // advance and wrap index
+    for (size_t i = 0; i < n1; ++i) {
+        // element-wise copy.
+        combined[i] = grid1[i];
     }
+    for (size_t i = 0; i < n2; ++i) {
+        // element-wise copy.
+        combined[i + n1] = grid2[i];
+    }
+}
+
+void addToRawBuffer(std::vector<uint16_t> newFrame){
+    // Take frame by value and move into the circular buffer to avoid element-wise copies
+    size_t expected = static_cast<size_t>(sensorSize) * numberOfSensors;
+    if (newFrame.size() != expected) {
+        Serial.print("addToRawBuffer: unexpected frame size ");
+        Serial.print(newFrame.size());
+        Serial.print(" expected ");
+        Serial.println(expected);
+        return;
+    }
+
+    // std:move is a cheap way to transfer ownership of the data without copying. 
+    rawDataBuffer[bufferIndex] = std::move(newFrame);
+    bufferIndex = (bufferIndex + 1) % bufferLength; // advance and wrap index
+}
+
+void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
+    // average for each element across the frames. resulting in one avaraged frame.
+    // depth is how many recent frames are averaged.
+    uint8_t frameSize = sensorSize * numberOfSensors;
+
+    // size check
+    if (averagedGrid.size() != frameSize) {
+        Serial.print("avarageGrid: unexpected averagedGrid size ");
+        Serial.print(averagedGrid.size());
+        Serial.print(" expected ");
+        Serial.println(frameSize);
+        return;
+    }
+
+    // simple moving average over the last 'depth' frames in the buffer
+    for (size_t i = 0; i < frameSize; ++i) {
+        uint32_t sum = 0;
+        uint8_t count = 0;
+
+        // loop over 'depth' number of recent frames.
+        for (uint8_t j = 0; j < depth; ++j) {
+            // determine index. (remeber that buffer is a circular buffer, we wrap around form current index.)
+            size_t idx = (bufferIndex + bufferLength - 1 - j) % bufferLength;
+            uint16_t val = rawDataBuffer[idx][i];
+
+            // filter out 0 readings.
+            if (val > 0) {
+                sum += val;
+                count++;
+            }
+        }
+
+        // store this elements average value.
+        averagedGrid[i] = (count > 0) ? (sum / count) : 0; // average or zero if no valid data
+    }
+
+    
 }
 
 
 void loop() {
+
+    delay(100);
+
+
     // try to do a measurement
     bool sensor1Ready = sensor1.getSensorReady();
     bool sensor2Ready = sensor2.getSensorReady();
 
-    // if sensor is ready, get the new data.
-    if(sensor1Ready){
-        std::vector<uint16_t> data1 = sensor1.fetchRawData();
-        // print data for debugging
-        Serial.println("Sensor 1:");
-
-        dumpDataFrame(data1);
-
-        sensor1.setFrequency(30);
-    }
-
-    if(sensor2Ready){
-        std::vector<uint16_t> data2 = sensor2.fetchRawData();
-        // print data for debugging
-        Serial.println("Sensor 2:");
-        // if size == 64, print as 8x8 grid. if size == 16, print as 4x4 grid.
-        dumpDataFrame(data2);
-        sensor2.setFrequency(30);
-    }
-
-
-    // DETECTION CODE------------------------------------------------
+    // if both sensors are ready, process the data.
     if (sensor1Ready && sensor2Ready) {
+ 
+        const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
+        const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
 
-        // create larger 
+        // dump data frame
+        // Serial.println("Sensor 1:");
+        // dumpDataFrame(data1_ref);
+
+        // Serial.println("Sensor 2:");
+        // dumpDataFrame(data2_ref);
+
+        // create larger grid
+        // 128x2 or 32x2 length
+        uint8_t combinedLength = sensorSize * numberOfSensors;  
+        std::vector<uint16_t> combinedGrid(combinedLength);
+
+        // double check size of data
+        if (data1_ref.size() == sensorSize && data2_ref.size() == sensorSize) {
+            // combine data into one grid. (pass combinedGrid by reference)
+            combineGrid(data1_ref, data2_ref, combinedGrid);
+
+            // move into the buffer to avoid copying element-by-element
+            addToRawBuffer(std::move(combinedGrid));
+        }
+
+        // rolling average over all the frames -> (average Grid)
+        // how many frame to average since last frame.
+        const uint8_t depth = bufferLength; 
+        std::vector<uint16_t> averagedGrid(combinedLength);
+        avarageGrid(averagedGrid, depth);
+
+        Serial.println("Averaged Grid, with depth " + String(depth) + ":");
+        dumpDataFrame(averagedGrid);
   
-
-        sensor2.setFrequency(30);
-
-        // add combined grid to the buffer.
-        // addToRawBuffer();
-
-        // filter: LPF
-        // timeAverage(buffer);
+        // detect the distance in each sector (left, middle, right) -> (return intensity o)
         
-
+                // detectCloseObject(combinedGrid, 0, 5, "LEFT");
+                // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
+                // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
         
-
-        // detectCloseObject(combinedGrid, 0, 5, "LEFT");
-        // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
-        // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
+        // store avoidance signal somewhere
+                
     }
-    //----------------------------------------------------------------
+            
+            
+    // use distance to give user feedback (intensity left, middle right)
+    // 0%, 0%, 100%
+    // pass stored avoidance signal.
+    giveUserFeedback(0, 0, 100);
 }
+

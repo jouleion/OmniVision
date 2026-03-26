@@ -15,7 +15,7 @@ class ToFSensor {
         // with sensor parameters.
         bool begin(SensorSize newSize, uint8_t frequency, uint8_t integrationTime, uint8_t sharpenerPercent);
         bool getSensorReady();
-        std::vector<uint16_t> fetchRawData();
+        const std::vector<uint16_t>& fetchRawData() const;
 
         void setSize(SensorSize newSize);
         void setFrequency(uint8_t frequency);

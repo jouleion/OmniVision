@@ -78,6 +78,6 @@ bool ToFSensor::getSensorReady() {
     return false;
 }
 
-std::vector<uint16_t> ToFSensor::fetchRawData() {
+const std::vector<uint16_t>& ToFSensor::fetchRawData() const {
     return rawDataGrid;
 }

@@ -1,0 +1,5 @@
+#define DISABLE_TOF
+
+
+#define VIBRATION_OUTPUT
+// #define SPEAKER_OUPTPUT
