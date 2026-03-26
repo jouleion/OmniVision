@@ -24,7 +24,8 @@ ToFSensor sensor2(&Wire1, LPn_PIN_2, SIZE_8X8, 2);
 
 // funky led functions.
 unsigned long lastBlink = 0;
-void nonBlockingBlinkError();
+void dumpDataFrame(std::vector<uint16_t> &data);
+void timeAverage(std::vector<std::array<uint16_t, 128>> &buffer);
 
 // Sensor data arrays for object detection.
 uint16_t combinedGrid[128];
@@ -113,62 +114,6 @@ void detectCloseObject(uint16_t *grid, int startCol, int endCol, const char* lab
 // -------------------------------------------------------------------------------------------------------------
 
 
-void loop() {
-    // try to do a measurement
-    bool sensor1Ready = sensor1.getSensorReady();
-    bool sensor2Ready = sensor2.getSensorReady();
-
-    // if sensor is ready, get the new data.
-    if(sensor1Ready){
-        std::vector<uint16_t> data1 = sensor1.fetchRawData();
-        // print data for debugging
-        Serial.println("Sensor 1:");
-        
-        dumpDataFrame(data1);
-
-        sensor1.setFrequency(30);
-    }
-
-    if(sensor2Ready){
-        std::vector<uint16_t> data2 = sensor2.fetchRawData();
-        // print data for debugging
-        Serial.println("Sensor 2:");
-        // if size == 64, print as 8x8 grid. if size == 16, print as 4x4 grid.
-        dumpDataFrame(data2);
-        sensor2.setFrequency(30);
-    }
-
-
-    // DETECTION CODE------------------------------------------------
-    if (sensor1Ready && sensor2Ready) {
-
-
-        // for (int row = 0; row < 8; row++) {
-        //     for (int col = 0; col < 8; col++) {
-                
-        //         combinedGrid[row * 16 + col] = sensor1Data[row * 8 + col];
-        //         combinedGrid[row * 16 + col + 8] = sensor2Data[row * 8 + col];
-        //     }
-        // }
-
-
-        sensor2.setFrequency(30);
-
-        // add combined grid to the buffer.
-        // addToRawBuffer();
-
-        // filter: LPF
-        // timeAverage(buffer);
-        
-
-        
-
-        // detectCloseObject(combinedGrid, 0, 5, "LEFT");
-        // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
-        // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
-    }
-    //----------------------------------------------------------------
-}
 
 void dumpDataFrame(std::vector<uint16_t> &data) {
     Serial.println("Data Frame:");
@@ -213,4 +158,55 @@ void addToRawBuffer(){
         buffer[insertPos] = newFrame; // store new frame into oldest position
         insertPos = (insertPos + 1) % bufferSize; // advance and wrap index
     }
+}
+
+
+void loop() {
+    // try to do a measurement
+    bool sensor1Ready = sensor1.getSensorReady();
+    bool sensor2Ready = sensor2.getSensorReady();
+
+    // if sensor is ready, get the new data.
+    if(sensor1Ready){
+        std::vector<uint16_t> data1 = sensor1.fetchRawData();
+        // print data for debugging
+        Serial.println("Sensor 1:");
+
+        dumpDataFrame(data1);
+
+        sensor1.setFrequency(30);
+    }
+
+    if(sensor2Ready){
+        std::vector<uint16_t> data2 = sensor2.fetchRawData();
+        // print data for debugging
+        Serial.println("Sensor 2:");
+        // if size == 64, print as 8x8 grid. if size == 16, print as 4x4 grid.
+        dumpDataFrame(data2);
+        sensor2.setFrequency(30);
+    }
+
+
+    // DETECTION CODE------------------------------------------------
+    if (sensor1Ready && sensor2Ready) {
+
+        // create larger 
+  
+
+        sensor2.setFrequency(30);
+
+        // add combined grid to the buffer.
+        // addToRawBuffer();
+
+        // filter: LPF
+        // timeAverage(buffer);
+        
+
+        
+
+        // detectCloseObject(combinedGrid, 0, 5, "LEFT");
+        // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
+        // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
+    }
+    //----------------------------------------------------------------
 }
