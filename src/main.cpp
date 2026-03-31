@@ -89,41 +89,93 @@ void setup() {
 }
 
 // DETECTION CODE------------------------------------------------------------------------------------------------
-void detectCloseObject(uint16_t *grid, int startCol, int endCol, const char* label, int threshold = 1000, float percentage = 0.35) {
-    int count = 0;
-    int total = 0;
+// void detectCloseObject(uint16_t *grid, int startCol, int endCol, const char* label, int threshold = 1000, float percentage = 0.35) {
+//     int count = 0;
+//     int total = 0;
 
-    for (int row = 0; row < 8; row++) {
-        for (int col = startCol; col < endCol; col++) {
-            int idx = row * 16 + col;
-            uint16_t val = grid[idx];
+//     for (int row = 0; row < 8; row++) {
+//         for (int col = startCol; col < endCol; col++) {
+//             int idx = row * 16 + col;
+//             uint16_t val = grid[idx];
 
-            if (val == 0) continue;
+//             if (val == 0) continue;
 
-            total++;
-            if (val < threshold) count++;
+//             total++;
+//             if (val < threshold) count++;
+//         }
+//     }
+
+//     if (total == 0) return;
+
+//     if (count >= total * percentage) {
+//         Serial.print(label);
+//         Serial.println(": OBJECT DETECTED");
+//     }
+// }
+
+void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, float percentage = 0.40) {
+    uint8_t totalCols = 8;
+    uint8_t totalRows = 4;
+
+    struct Zone {
+        const char* label;
+        uint8_t startCol;
+        uint8_t endCol;
+    };
+
+    Zone zones[] = {
+        { "LEFT",   0, 2 },
+        { "MIDDLE", 2, 6 },
+        { "RIGHT",  6, 8 }
+    };
+
+    for (const Zone &zone : zones) {
+        int count = 0;
+        int total = 0;
+
+        for (uint8_t row = 0; row < totalRows; ++row) {
+            for (uint8_t col = zone.startCol; col < zone.endCol; ++col) {
+                uint16_t val = grid[row * totalCols + col];
+
+                if (val == 0) continue;
+
+                total++;
+                if (val < threshold) count++;
+            }
         }
-    }
 
-    if (total == 0) return;
+        if (total == 0) continue;
 
-    if (count >= total * percentage) {
-        Serial.print(label);
-        Serial.println(": OBJECT DETECTED");
+        if (count >= total * percentage) {
+            Serial.print(zone.label);
+            Serial.println(": OBJECT DETECTED");
+        }
     }
 }
 // -------------------------------------------------------------------------------------------------------------
 
+// void dumpDataFrame(const std::vector<uint16_t> &data) {
+//     Serial.println("Data Frame:");
+//     for (size_t i = 0; i < data.size(); ++i) {
+//         Serial.print(data[i]);
+//         Serial.print(", ");
 
+//         // add newlime after correct length.
+//         uint8_t rowLength = (sensorSize == SIZE_8X8) ? 8 : 4;
+//         if ((i + 1) % rowLength == 0) {
+//             Serial.println();
+//         }
+//     }
+// }
 
 void dumpDataFrame(const std::vector<uint16_t> &data) {
     Serial.println("Data Frame:");
+    uint8_t cols = (sensorSize == SIZE_8X8) ? 8 : 4;
+    uint8_t rowLength = cols * numberOfSensors;
+
     for (size_t i = 0; i < data.size(); ++i) {
         Serial.print(data[i]);
         Serial.print(", ");
-
-        // add newlime after correct length.
-        uint8_t rowLength = (sensorSize == SIZE_8X8) ? 8 : 4;
         if ((i + 1) % rowLength == 0) {
             Serial.println();
         }
@@ -144,19 +196,38 @@ void giveUserFeedback(uint16_t leftIntensity, uint16_t middleIntensity, uint16_t
 
 }
 
-void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
-    // combine two same-size grids into one contiguous grid: grid1 then grid2
-    size_t n1 = grid1.size();
-    size_t n2 = grid2.size();
-    if (combined.size() != n1 + n2) return; // caller should size combined appropriately
+// void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
+//     // combine two same-size grids into one contiguous grid: grid1 then grid2
+//     size_t n1 = grid1.size();
+//     size_t n2 = grid2.size();
+//     if (combined.size() != n1 + n2) return; // caller should size combined appropriately
 
-    for (size_t i = 0; i < n1; ++i) {
-        // element-wise copy.
-        combined[i] = grid1[i];
-    }
-    for (size_t i = 0; i < n2; ++i) {
-        // element-wise copy.
-        combined[i + n1] = grid2[i];
+//     for (size_t i = 0; i < n1; ++i) {
+//         // element-wise copy.
+//         combined[i] = grid1[i];
+//     }
+//     for (size_t i = 0; i < n2; ++i) {
+//         // element-wise copy.
+//         combined[i + n1] = grid2[i];
+//     }
+// }
+
+// CHANGED COMBINE GRID TO MAKE DATA FRAME HORIZONTAL
+void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
+    uint8_t cols = (sensorSize == SIZE_8X8) ? 8 : 4;
+    uint8_t rows = sensorSize / cols;
+
+    if (grid1.size() != sensorSize || grid2.size() != sensorSize) return;
+    if (combined.size() != sensorSize * numberOfSensors) return;
+
+    for (uint8_t row = 0; row < rows; ++row) {
+        for (uint8_t col = 0; col < cols; ++col) {
+            combined[row * cols * numberOfSensors + col] = grid1[row * cols + col];
+        }
+
+        for (uint8_t col = 0; col < cols; ++col) {
+            combined[row * cols * numberOfSensors + cols + col] = grid2[row * cols + col];
+        }
     }
 }
 
@@ -262,10 +333,12 @@ void loop() {
         dumpDataFrame(averagedGrid);
   
         // detect the distance in each sector (left, middle, right) -> (return intensity o)
-        
-                // detectCloseObject(combinedGrid, 0, 5, "LEFT");
-                // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
-                // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
+        // detectCloseObject(combinedGrid, 0, 5, "LEFT");
+        // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
+        // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
+
+        // detect close objects
+        detectCloseObject(averagedGrid);
         
         // store avoidance signal somewhere
                 
