@@ -17,6 +17,37 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
 uint8_t numberOfSensors = 2;
 
+#if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+static hw_timer_t *feedback_timer = nullptr;
+void IRAM_ATTR onFeedbackTimerISR();
+void startFeedbackTimer();
+void stopFeedback();
+#endif
+
+#ifdef SPEAKER_OUTPUT                                       // For speaker output
+#define LEFT_SPEAKER_PIN 1
+#define RIGHT_SPEAKER_PIN 2
+
+#define LEFT_SPEAKER_PWM_CHANNEL 0                         // LEDC channel 0 is used for controlling the speaker tone, not for leds
+#define RIGHT_SPEAKER_PWM_CHANNEL 1                        // LEDC channel 1 is used for controlling the right speaker tone
+#define LEFT_SPEAKER_PWM_RESOLUTION 8
+#define RIGHT_SPEAKER_PWM_RESOLUTION 8
+#define LEFT_SPEAKER_DEFAULT_DUTY 128
+#define RIGHT_SPEAKER_DEFAULT_DUTY 128
+
+void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
+#endif
+
+#ifdef VIBRATION_OUTPUT                                       // For vibration output
+#define LEFT_VIBRATION_PIN 3
+#define RIGHT_VIBRATION_PIN 4
+
+#define LEFT_VIBRATION_PWM_CHANNEL 2
+#define RIGHT_VIBRATION_PWM_CHANNEL 3
+#define LEFT_VIBRATION_PWM_RESOLUTION 8
+#define RIGHT_VIBRATION_PWM_RESOLUTION 8
+#endif
+
 // setup two I2C busses.
 #define LPn_PIN_1 4
 #define SDA_PIN_1 5
@@ -84,6 +115,35 @@ void setup() {
         esp_restart();
     }
 
+#if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+    feedback_timer = timerBegin(1, 80, true); // use timer 1 to avoid conflict with echo sensor timer 0
+    timerAttachInterrupt(feedback_timer, &onFeedbackTimerISR, true);
+    timerAlarmWrite(feedback_timer, 100000, false); // 100 ms
+    timerAlarmDisable(feedback_timer);
+#endif
+
+#ifdef SPEAKER_OUTPUT
+    pinMode(LEFT_SPEAKER_PIN, OUTPUT);
+    ledcSetup(LEFT_SPEAKER_PWM_CHANNEL, 1000, LEFT_SPEAKER_PWM_RESOLUTION);
+    ledcAttachPin(LEFT_SPEAKER_PIN, LEFT_SPEAKER_PWM_CHANNEL);
+    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+    pinMode(RIGHT_SPEAKER_PIN, OUTPUT);
+    ledcSetup(RIGHT_SPEAKER_PWM_CHANNEL, 1000, RIGHT_SPEAKER_PWM_RESOLUTION);
+    ledcAttachPin(RIGHT_SPEAKER_PIN, RIGHT_SPEAKER_PWM_CHANNEL);
+    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+#endif
+
+#ifdef VIBRATION_OUTPUT
+    pinMode(LEFT_VIBRATION_PIN, OUTPUT);
+    ledcSetup(LEFT_VIBRATION_PWM_CHANNEL, 1000, LEFT_VIBRATION_PWM_RESOLUTION);
+    ledcAttachPin(LEFT_VIBRATION_PIN, LEFT_VIBRATION_PWM_CHANNEL);
+    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+    pinMode(RIGHT_VIBRATION_PIN, OUTPUT);
+    ledcSetup(RIGHT_VIBRATION_PWM_CHANNEL, 1000, RIGHT_VIBRATION_PWM_RESOLUTION);
+    ledcAttachPin(RIGHT_VIBRATION_PIN, RIGHT_VIBRATION_PWM_CHANNEL);
+    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+#endif
+
     pixels.setPixelColor(0, pixels.Color(0, 255, 0));  // Green
     pixels.show();
 }
@@ -130,19 +190,87 @@ void dumpDataFrame(const std::vector<uint16_t> &data) {
     }
 }
 
+// Give user feedback based on the detected distance in each sector (left, middle, right). Values can range from 0 (no feedback) to 65535 (intense feedback).
 void giveUserFeedback(uint16_t leftIntensity, uint16_t middleIntensity, uint16_t rightIntensity) {
-    #ifdef SPEAKER_OUTPUT
-        // for large distance, speaker only
-        
+    leftIntensity = max(leftIntensity, middleIntensity);
+    rightIntensity = max(rightIntensity, middleIntensity);
 
+    if (!leftIntensity && !rightIntensity) {
+        stopFeedback();
+        return;
+    }
 
-        #ifdef VIBRATION_OUTPUT
-            // for small distance, vibration + speaker
-            // process intensity to vibration too.
-        #endif
-    #endif
+#ifdef SPEAKER_OUTPUT
+    // Map intensity to an audible frequency range.
+    // Higher intensity produces a higher pitched tone.
+    uint32_t leftFreq = 0;
+    uint32_t rightFreq = 0;
+    if (leftIntensity) leftFreq = 200 + static_cast<uint32_t>(leftIntensity) * 16;
+    if (rightIntensity) rightFreq = 200 + static_cast<uint32_t>(rightIntensity) * 16;
+    if (leftFreq > 2500) leftFreq = 2500;
+    if (rightFreq > 2500) rightFreq = 2500;
+    if (leftFreq || rightFreq) {
+        startSpeakerTone(leftFreq, rightFreq);
+    }
+#endif
 
+#ifdef VIBRATION_OUTPUT
+    uint8_t leftvibration = map(leftIntensity, 0, 65535, 0, 255);
+    uint8_t rightvibration = map(rightIntensity, 0, 65535, 0, 255);
+    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, leftvibration);
+    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, rightvibration);
+    startFeedbackTimer();
+#endif
 }
+
+#if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+void IRAM_ATTR onFeedbackTimerISR() {
+    if (!feedback_timer) return;
+    #ifdef SPEAKER_OUTPUT
+    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+    #endif
+    #ifdef VIBRATION_OUTPUT
+    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+    #endif
+    timerAlarmDisable(feedback_timer);
+}
+
+void startFeedbackTimer() {
+    if (!feedback_timer) return;
+    timerAlarmWrite(feedback_timer, 100000, false);              // 100000 us = 100 ms
+    timerAlarmEnable(feedback_timer);
+}
+
+void stopFeedback() {
+    if (!feedback_timer) return;
+    #ifdef SPEAKER_OUTPUT
+    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+    #endif
+    #ifdef VIBRATION_OUTPUT
+    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+    #endif
+    timerAlarmDisable(feedback_timer);
+}
+#endif
+
+#ifdef SPEAKER_OUTPUT
+void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq) {
+    if (!feedback_timer) return;
+    if (leftFreq) {
+        ledcWriteTone(LEFT_SPEAKER_PWM_CHANNEL, leftFreq);
+        ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, LEFT_SPEAKER_DEFAULT_DUTY);
+    } else ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+    if (rightFreq) {
+        ledcWriteTone(RIGHT_SPEAKER_PWM_CHANNEL, rightFreq);
+        ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, RIGHT_SPEAKER_DEFAULT_DUTY);
+    } else ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+    startFeedbackTimer();
+}
+#endif
 
 void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
     // combine two same-size grids into one contiguous grid: grid1 then grid2
