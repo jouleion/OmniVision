@@ -40,8 +40,8 @@ void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 EchoSensor echosensor(6,7);
 
 // For vibration output
-#define LEFT_VIBRATION_PIN 15
-#define RIGHT_VIBRATION_PIN 16
+#define LEFT_VIBRATION_PIN 12
+#define RIGHT_VIBRATION_PIN 13
 #define LEFT_VIBRATION_PWM_CHANNEL 2
 #define RIGHT_VIBRATION_PWM_CHANNEL 3
 #define LEFT_VIBRATION_PWM_RESOLUTION 8
