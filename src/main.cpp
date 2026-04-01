@@ -423,6 +423,19 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
 #endif
 
 #ifdef TEST_MODE
+
+void vibrate_motor_test() {
+    Serial.println("Testing vibration motors...");
+    for (int i = 0; i < 3; ++i) {
+        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 255);
+        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 255);
+        delay(500);
+        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+        delay(500);
+    }
+}
+
 void printGrid(const std::vector<uint16_t> &data, uint8_t cols) {
     for (size_t i = 0; i < data.size(); ++i) {
         Serial.printf("%5d ", data[i]);
@@ -442,7 +455,7 @@ void bruteForceTuning(){
             for (int sharp : sharpenerPercents) {
                 Serial.println("-----------------------------");
                 Serial.print("FREQ="); Serial.print(freq);
-                Serial.print("INTER="); Serial.print(intTime);
+                Serial.print("INTER="); Serial.print(inter);
                 Serial.print("SHARP="); Serial.println(sharp);
                 Serial.println("-----------------------------");
 
@@ -499,7 +512,11 @@ void bruteForceTuning(){
 void loop() {
     // try to do a measurement
     #ifdef TEST_MODE
-        bruteForceTuning();
+        vibrate_motor_test();
+        
+        #ifndef DISABLE_TOF
+            bruteForceTuning();
+        #endif
         while(true);
     #else
         #ifndef DISABLE_TOF
