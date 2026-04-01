@@ -215,6 +215,27 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
     
 }
 
+void bruteForceTuning(){
+
+    int frequencies[] = {15, 30, 60, 120};
+    int integrationTimes[] = {1, 5, 10, 20};
+    int sharpenerPercents[] = {0, 20, 50, 80};
+
+    for (int freq : frequencies) {
+        for (int intTime : integrationTimes) {
+            for (int sharp : sharpenerPercents) {
+                
+
+                // reinit sensor
+
+
+                // x measurements (output to serial)
+            }
+        }
+    }
+
+}
+
 
 void loop() {
 
