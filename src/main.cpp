@@ -34,10 +34,12 @@ void stopFeedback();
 #define RIGHT_SPEAKER_PWM_RESOLUTION 8
 #define LEFT_SPEAKER_DEFAULT_DUTY 128
 #define RIGHT_SPEAKER_DEFAULT_DUTY 128
+#define MIN_FREQ 200
+#define MAX_FREQ 5000
 void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 
 // Echosensor setup: trigpin, echopin
-EchoSensor echosensor(6,7);
+EchoSensor echosensor(1, 9);
 
 // For vibration output
 #define LEFT_VIBRATION_PIN 15
@@ -248,8 +250,8 @@ void dumpDataFrame(const std::vector<uint16_t> &data) {
     }
 }
 
-// Give user feedback based on the detected distance in each sector (left, middle, right). Values can range from 0 (no feedback) to 65535 (intense feedback).
-void giveUserFeedback(uint16_t leftIntensity, uint16_t middleIntensity, uint16_t rightIntensity) {
+// Give user feedback based on the detected distance in each sector (left, middle, right). Values can range from 0 (no feedback) to 100 (most intense feedback).
+void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity) {
     leftIntensity = max(leftIntensity, middleIntensity);
     rightIntensity = max(rightIntensity, middleIntensity);
 
@@ -263,18 +265,16 @@ void giveUserFeedback(uint16_t leftIntensity, uint16_t middleIntensity, uint16_t
     // Higher intensity produces a higher pitched tone.
     uint32_t leftFreq = 0;
     uint32_t rightFreq = 0;
-    if (leftIntensity) leftFreq = 200 + static_cast<uint32_t>(leftIntensity) * 16;
-    if (rightIntensity) rightFreq = 200 + static_cast<uint32_t>(rightIntensity) * 16;
-    if (leftFreq > 2500) leftFreq = 2500;
-    if (rightFreq > 2500) rightFreq = 2500;
+    if (leftIntensity) leftFreq = map(leftIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
+    if (rightIntensity) rightFreq = map(leftIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
     if (leftFreq || rightFreq) {
         startSpeakerTone(leftFreq, rightFreq);
     }
 #endif
 
 #ifdef VIBRATION_OUTPUT
-    uint8_t leftvibration = map(leftIntensity, 0, 65535, 0, 255);
-    uint8_t rightvibration = map(rightIntensity, 0, 65535, 0, 255);
+    uint8_t leftvibration = map(leftIntensity, 0, 100, 0, 255);
+    uint8_t rightvibration = map(rightIntensity, 0, 100, 0, 255);
     ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, leftvibration);
     ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, rightvibration);
     startFeedbackTimer();
