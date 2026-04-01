@@ -422,85 +422,163 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
 }
 #endif
 
+#ifdef TEST_MODE
+void printGrid(const std::vector<uint16_t> &data, uint8_t cols) {
+    for (size_t i = 0; i < data.size(); ++i) {
+        Serial.printf("%5d ", data[i]);
+        if ((i + 1) % cols == 0) Serial.println();
+    }
+}
+
+void bruteForceTuning(){
+    Serial.println("---------------------START: Test Begin---------------------");
+    const uint8_t NUM_MEASUREMENTS = 20;
+    int frequencies[] = {15, 30, 60, 120};
+    int integrationTimes[] = {1, 5, 10, 20};
+    int sharpenerPercents[] = {0, 20, 50, 80, 100};
+
+    for (int freq : frequencies) {
+        for (int inter : integrationTimes) {
+            for (int sharp : sharpenerPercents) {
+                Serial.println("-----------------------------");
+                Serial.print("FREQ="); Serial.print(freq);
+                Serial.print("INTER="); Serial.print(intTime);
+                Serial.print("SHARP="); Serial.println(sharp);
+                Serial.println("-----------------------------");
+
+                // reinit sensor
+                bool sensor1Ok = sensor1.begin(sensorSize, freq, inter, sharp);
+                bool sensor2Ok = sensor2.begin(sensorSize, freq, inter, sharp);
+
+                if (!sensor1Ok || !sensor2Ok) {
+                    Serial.println("ERROR: sensor init failed");
+                    continue;
+                }
+
+                // x measurements (output to serial)
+                uint8_t count = 0;
+                uint32_t startMs = millis();
+                const uint32_t TIMEOUT_MS = 10000;
+
+                while(count < NUM_MEASUREMENTS) {
+                    if (millis() - startMs > TIMEOUT_MS) {
+                        Serial.println("TIMEOUT waiting for measurements");
+                        break;
+                    }
+
+                    bool s1Ready = sensor1.getSensorReady();
+                    bool s2Ready = sensor2.getSensorReady();
+
+                    if (s1Ready && s2Ready) {
+                        const std::vector<uint16_t> &d1 = sensor1.fetchRawData();
+                        const std::vector<uint16_t> &d2 = sensor2.fetchRawData();
+
+                        uint8_t cols = (sensorSize == SIZE_8X8) ? 8 : 4;
+
+                        Serial.print("FRAME "); Serial.print(count + 1); Serial.println(":");
+                        Serial.println("  S1:");
+                        printGrid(d1, cols);
+                        Serial.println("  S2:");
+                        printGrid(d2, cols);
+
+                        count++;
+                    }
+                }
+
+                Serial.print("DONE: "); 
+                Serial.print(count);
+                Serial.println(" measurements collected");
+            }
+        }
+    }
+    Serial.println("---------------------DONE: Test Complete---------------------");
+}
+#endif 
+
 
 void loop() {
     // try to do a measurement
-#ifndef DISABLE_TOF
-    bool sensor1Ready = sensor1.getSensorReady();
-    bool sensor2Ready = sensor2.getSensorReady();
+    #ifdef TEST_MODE
+        bruteForceTuning();
+        while(true);
+    #else
+        #ifndef DISABLE_TOF
+            bool sensor1Ready = sensor1.getSensorReady();
+            bool sensor2Ready = sensor2.getSensorReady();
 
-    // if both sensors are ready, process the data.
-    if (sensor1Ready && sensor2Ready) {
- 
-        const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
-        const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
-
-        // dump data frame
-        // Serial.println("Sensor 1:");
-        // dumpDataFrame(data1_ref);
-
-        // Serial.println("Sensor 2:");
-        // dumpDataFrame(data2_ref);
-
-        // create larger grid
-        // 128x2 or 32x2 length
-        uint8_t combinedLength = sensorSize * numberOfSensors;  
-        std::vector<uint16_t> combinedGrid(combinedLength);
-
-        // double check size of data
-        if (data1_ref.size() == sensorSize && data2_ref.size() == sensorSize) {
-            // combine data into one grid. (pass combinedGrid by reference)
-            combineGrid(data1_ref, data2_ref, combinedGrid);
-
-            // move into the buffer to avoid copying element-by-element
-            addToRawBuffer(std::move(combinedGrid));
-        }
-
-        // rolling average over all the frames -> (average Grid)
-        // how many frame to average since last frame.
-        const uint8_t depth = bufferLength; 
-        std::vector<uint16_t> averagedGrid(combinedLength);
-        avarageGrid(averagedGrid, depth);
-
-        Serial.println("Averaged Grid, with depth " + String(depth) + ":");
-        dumpDataFrame(averagedGrid);
-  
-        // detect the distance in each sector (left, middle, right) -> (return intensity o)
-        // detectCloseObject(combinedGrid, 0, 5, "LEFT");
-        // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
-        // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
-
-        // detect close objects
-        detectCloseObject(averagedGrid);
+            // if both sensors are ready, process the data.
+            if (sensor1Ready && sensor2Ready) {
         
-        // store avoidance signal somewhere
+                const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
+                const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
+
+                // dump data frame
+                // Serial.println("Sensor 1:");
+                // dumpDataFrame(data1_ref);
+
+                // Serial.println("Sensor 2:");
+                // dumpDataFrame(data2_ref);
+
+                // create larger grid
+                // 128x2 or 32x2 length
+                uint8_t combinedLength = sensorSize * numberOfSensors;  
+                std::vector<uint16_t> combinedGrid(combinedLength);
+
+                // double check size of data
+                if (data1_ref.size() == sensorSize && data2_ref.size() == sensorSize) {
+                    // combine data into one grid. (pass combinedGrid by reference)
+                    combineGrid(data1_ref, data2_ref, combinedGrid);
+
+                    // move into the buffer to avoid copying element-by-element
+                    addToRawBuffer(std::move(combinedGrid));
+                }
+
+                // rolling average over all the frames -> (average Grid)
+                // how many frame to average since last frame.
+                const uint8_t depth = bufferLength; 
+                std::vector<uint16_t> averagedGrid(combinedLength);
+                avarageGrid(averagedGrid, depth);
+
+                Serial.println("Averaged Grid, with depth " + String(depth) + ":");
+                dumpDataFrame(averagedGrid);
+        
+                // detect the distance in each sector (left, middle, right) -> (return intensity o)
+                // detectCloseObject(combinedGrid, 0, 5, "LEFT");
+                // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
+                // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
+
+                // detect close objects
+                detectCloseObject(averagedGrid);
                 
-    }
-#endif            
-            
-    // use distance to give user feedback (intensity left, middle right)
-    // 0%, 0%, 100%
-    // pass stored avoidance signal.
+                // store avoidance signal somewhere
+                        
+            }
+        #endif            
+                    
+            // use distance to give user feedback (intensity left, middle right)
+            // 0%, 0%, 100%
+            // pass stored avoidance signal.
 
-#ifdef USE_ECHO_SENSOR
-    if(echosensor.newDataAvailable()) {
-        if (echosensor.timedOut()) {
-            Serial.println("Echo Sensor: No object detected within range.");
-        } else {
-            uint16_t distance = echosensor.getDistanceCM();
-            Serial.print("Echo Sensor Distance: ");
-            Serial.print(distance);
-            Serial.println(" cm");
-        }
-        echosensor.trigger();
-    }
-#endif
+        #ifdef USE_ECHO_SENSOR
+            if(echosensor.newDataAvailable()) {
+                if (echosensor.timedOut()) {
+                    Serial.println("Echo Sensor: No object detected within range.");
+                } else {
+                    uint16_t distance = echosensor.getDistanceCM();
+                    Serial.print("Echo Sensor Distance: ");
+                    Serial.print(distance);
+                    Serial.println(" cm");
+                }
+                echosensor.trigger();
+            }
+        #endif
 
 
-    giveUserFeedback(0, 0, 100);
+            giveUserFeedback(0, 0, 100);
 
-#ifdef DELAY_IN_LOOP
-    delay(2000);
-#endif
+        #ifdef DELAY_IN_LOOP
+            delay(2000);
+        #endif
+    #endif
 }
 

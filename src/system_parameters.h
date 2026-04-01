@@ -3,3 +3,4 @@
 #define SPEAKER_OUTPUT
 #define DELAY_IN_LOOP
 #define USE_ECHO_SENSOR
+#define TEST_MODE
