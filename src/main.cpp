@@ -1,3 +1,4 @@
+// required pins: 10 (2x2 I2C, 2 for echosensor, 2 for speakers, 2 for vibration motors), ESP32-S3 supermini has these pins marked as safe to use: IO1, IO2, IO4, IO5, IO6, IO7, IO8, IO15, IO16, NO I2C/PWM but safe: IO17, IO18, IO21
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
@@ -17,36 +18,34 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
 uint8_t numberOfSensors = 2;
 
-#if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+// for all feedback
 static hw_timer_t *feedback_timer = nullptr;
 void IRAM_ATTR onFeedbackTimerISR();
 void startFeedbackTimer();
 void stopFeedback();
-#endif
 
-#ifdef SPEAKER_OUTPUT                                       // For speaker output
-#define LEFT_SPEAKER_PIN 1
-#define RIGHT_SPEAKER_PIN 2
+// For speaker output
+#define LEFT_SPEAKER_PIN 40                                 // Pin 40 is used for JTAG, so JTAG will not work
+#define RIGHT_SPEAKER_PIN 42                                // Pin 42 seems to be free and supports PWM
 
-#define LEFT_SPEAKER_PWM_CHANNEL 0                         // LEDC channel 0 is used for controlling the speaker tone, not for leds
-#define RIGHT_SPEAKER_PWM_CHANNEL 1                        // LEDC channel 1 is used for controlling the right speaker tone
+#define LEFT_SPEAKER_PWM_CHANNEL 0                          // LEDC channel 0 is used for controlling the speaker tone, not for leds
+#define RIGHT_SPEAKER_PWM_CHANNEL 1                         // LEDC channel 1 is used for controlling the right speaker tone
 #define LEFT_SPEAKER_PWM_RESOLUTION 8
 #define RIGHT_SPEAKER_PWM_RESOLUTION 8
 #define LEFT_SPEAKER_DEFAULT_DUTY 128
 #define RIGHT_SPEAKER_DEFAULT_DUTY 128
-
 void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
-#endif
 
-#ifdef VIBRATION_OUTPUT                                       // For vibration output
-#define LEFT_VIBRATION_PIN 3
-#define RIGHT_VIBRATION_PIN 4
+// Echosensor setup: trigpin, echopin
+EchoSensor echosensor(6,7);
 
+// For vibration output
+#define LEFT_VIBRATION_PIN 15
+#define RIGHT_VIBRATION_PIN 16
 #define LEFT_VIBRATION_PWM_CHANNEL 2
 #define RIGHT_VIBRATION_PWM_CHANNEL 3
 #define LEFT_VIBRATION_PWM_RESOLUTION 8
 #define RIGHT_VIBRATION_PWM_RESOLUTION 8
-#endif
 
 // setup two I2C busses.
 #define LPn_PIN_1 4
@@ -89,10 +88,11 @@ void setup() {
     Serial.begin(115200);
     delay(3000);
     Serial.println("ESP32-S3 + VL53L7CX v1.0.3 + NeoPixel");
-    while(!Serial);
+    //while(!Serial);
 
     setupLed();
 
+#ifndef DISABLE_TOF
     // I2C: sda=5, scl=6
     Wire.begin(SDA_PIN_1, SCL_PIN_1);
     Wire.setClock(800000);  // 800kHz
@@ -114,6 +114,7 @@ void setup() {
         delay(2000);
         esp_restart();
     }
+#endif
 
 #if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
     feedback_timer = timerBegin(1, 80, true); // use timer 1 to avoid conflict with echo sensor timer 0
@@ -142,6 +143,11 @@ void setup() {
     ledcSetup(RIGHT_VIBRATION_PWM_CHANNEL, 1000, RIGHT_VIBRATION_PWM_RESOLUTION);
     ledcAttachPin(RIGHT_VIBRATION_PIN, RIGHT_VIBRATION_PWM_CHANNEL);
     ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+#endif
+
+#ifdef USE_ECHO_SENSOR
+    echosensor.begin();
+    echosensor.trigger();
 #endif
 
     pixels.setPixelColor(0, pixels.Color(0, 255, 0));  // Green
@@ -272,6 +278,7 @@ void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq) {
 }
 #endif
 
+#ifndef DISABLE_TOF
 void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
     // combine two same-size grids into one contiguous grid: grid1 then grid2
     size_t n1 = grid1.size();
@@ -342,14 +349,12 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
 
     
 }
+#endif
 
 
 void loop() {
-
-    delay(100);
-
-
     // try to do a measurement
+#ifndef DISABLE_TOF
     bool sensor1Ready = sensor1.getSensorReady();
     bool sensor2Ready = sensor2.getSensorReady();
 
@@ -398,11 +403,31 @@ void loop() {
         // store avoidance signal somewhere
                 
     }
-            
+#endif            
             
     // use distance to give user feedback (intensity left, middle right)
     // 0%, 0%, 100%
     // pass stored avoidance signal.
+
+#ifdef USE_ECHO_SENSOR
+    if(echosensor.newDataAvailable()) {
+        if (echosensor.timedOut()) {
+            Serial.println("Echo Sensor: No object detected within range.");
+        } else {
+            uint16_t distance = echosensor.getDistanceCM();
+            Serial.print("Echo Sensor Distance: ");
+            Serial.print(distance);
+            Serial.println(" cm");
+        }
+        echosensor.trigger();
+    }
+#endif
+
+
     giveUserFeedback(0, 0, 100);
+
+#ifdef DELAY_IN_LOOP
+    delay(2000);
+#endif
 }
 

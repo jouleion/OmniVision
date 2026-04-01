@@ -1,3 +1,5 @@
 #define DISABLE_TOF
 #define VIBRATION_OUTPUT
 #define SPEAKER_OUTPUT
+#define DELAY_IN_LOOP
+#define USE_ECHO_SENSOR
