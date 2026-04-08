@@ -25,8 +25,8 @@ void startFeedbackTimer();
 void stopFeedback();
 
 // For speaker output
-#define LEFT_SPEAKER_PIN 40                                 // Pin 40 is used for JTAG, so JTAG will not work
-#define RIGHT_SPEAKER_PIN 42                                // Pin 42 seems to be free and supports PWM
+#define LEFT_SPEAKER_PIN 9                                 // Pin 40 is used for JTAG, so JTAG will not work
+#define RIGHT_SPEAKER_PIN 10                                // Pin 42 seems to be free and supports PWM
 
 #define LEFT_SPEAKER_PWM_CHANNEL 0                          // LEDC channel 0 is used for controlling the speaker tone, not for leds
 #define RIGHT_SPEAKER_PWM_CHANNEL 1                         // LEDC channel 1 is used for controlling the right speaker tone
@@ -436,6 +436,16 @@ void vibrate_motor_test() {
     }
 }
 
+void buzzer_test() {
+    Serial.println("Testing speakers...");
+    for (int i = 0; i < 3; ++i) {
+        startSpeakerTone(1000, 1000);
+        delay(500);
+        stopFeedback();
+        delay(500);
+    }
+}
+
 void printGrid(const std::vector<uint16_t> &data, uint8_t cols) {
     for (size_t i = 0; i < data.size(); ++i) {
         Serial.printf("%5d ", data[i]);
@@ -445,9 +455,9 @@ void printGrid(const std::vector<uint16_t> &data, uint8_t cols) {
 
 void bruteForceTuning(){
     Serial.println("---------------------START: Test Begin---------------------");
-    const uint8_t NUM_MEASUREMENTS = 20;
-    int frequencies[] = {15, 30, 60, 120};
-    int integrationTimes[] = {1, 5, 10, 20};
+    const uint8_t NUM_MEASUREMENTS = 10;
+    int frequencies[] = {1, 5, 15, 30, 45, 60, 120};
+    int integrationTimes[] = {1, 2, 5, 10, 20};
     int sharpenerPercents[] = {0, 20, 50, 80, 100};
 
     for (int freq : frequencies) {
@@ -512,8 +522,8 @@ void bruteForceTuning(){
 void loop() {
     // try to do a measurement
     #ifdef TEST_MODE
-        vibrate_motor_test();
-        
+        // vibrate_motor_test();
+        // buzzer_test();
         #ifndef DISABLE_TOF
             bruteForceTuning();
         #endif
