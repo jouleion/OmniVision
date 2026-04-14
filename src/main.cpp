@@ -25,39 +25,39 @@ void startFeedbackTimer();
 void stopFeedback();
 
 // For speaker output
-#define LEFT_SPEAKER_PIN 9                                 // Pin 40 is used for JTAG, so JTAG will not work
-#define RIGHT_SPEAKER_PIN 10                                // Pin 42 seems to be free and supports PWM
+#define LEFT_SPEAKER_PIN 12                                 // Pin 40 is used for JTAG, so JTAG will not work
+#define RIGHT_SPEAKER_PIN 11                                // Pin 42 seems to be free and supports PWM
 
 #define LEFT_SPEAKER_PWM_CHANNEL 0                          // LEDC channel 0 is used for controlling the speaker tone, not for leds
 #define RIGHT_SPEAKER_PWM_CHANNEL 1                         // LEDC channel 1 is used for controlling the right speaker tone
 #define LEFT_SPEAKER_PWM_RESOLUTION 8
 #define RIGHT_SPEAKER_PWM_RESOLUTION 8
-#define LEFT_SPEAKER_DEFAULT_DUTY 128
-#define RIGHT_SPEAKER_DEFAULT_DUTY 128
+#define LEFT_SPEAKER_DEFAULT_DUTY 200
+#define RIGHT_SPEAKER_DEFAULT_DUTY 200
 #define MIN_FREQ 200
 #define MAX_FREQ 5000
 void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 
 // Echosensor setup: trigpin, echopin
-EchoSensor echosensor(1, 9);
+EchoSensor echosensor(8, 1);
 
 // For vibration output
-#define LEFT_VIBRATION_PIN 12
-#define RIGHT_VIBRATION_PIN 13
+#define LEFT_VIBRATION_PIN 10
+#define RIGHT_VIBRATION_PIN 13 
 #define LEFT_VIBRATION_PWM_CHANNEL 2
 #define RIGHT_VIBRATION_PWM_CHANNEL 3
 #define LEFT_VIBRATION_PWM_RESOLUTION 8
 #define RIGHT_VIBRATION_PWM_RESOLUTION 8
 
 // setup two I2C busses.
-#define LPn_PIN_1 4
-#define SDA_PIN_1 5
-#define SCL_PIN_1 6
+#define LPn_PIN_1 1
+#define SDA_PIN_1 2
+#define SCL_PIN_1 3
 ToFSensor sensor1(&Wire, LPn_PIN_1, sensorSize, 1);
 
 #define LPn_PIN_2 7
-#define SDA_PIN_2 3
-#define SCL_PIN_2 2
+#define SDA_PIN_2 6
+#define SCL_PIN_2 5
 ToFSensor sensor2(&Wire1, LPn_PIN_2, sensorSize, 2);
 
 // data buffer
@@ -255,10 +255,12 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
     leftIntensity = max(leftIntensity, middleIntensity);
     rightIntensity = max(rightIntensity, middleIntensity);
 
-    if (!leftIntensity && !rightIntensity) {
+    if (leftIntensity == 0 && rightIntensity == 0) {
         stopFeedback();
         return;
     }
+
+    bool hasActivity = false;
 
 #ifdef SPEAKER_OUTPUT
     // Map intensity to an audible frequency range.
@@ -266,24 +268,40 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
     uint32_t leftFreq = 0;
     uint32_t rightFreq = 0;
     if (leftIntensity) leftFreq = map(leftIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
-    if (rightIntensity) rightFreq = map(leftIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
+    if (rightIntensity) rightFreq = map(rightIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
     if (leftFreq || rightFreq) {
-        startSpeakerTone(leftFreq, rightFreq);
+        if (leftFreq) {
+            ledcWriteTone(LEFT_SPEAKER_PWM_CHANNEL, leftFreq);
+            ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, LEFT_SPEAKER_DEFAULT_DUTY);
+        } else ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+
+        if (rightFreq) {
+            ledcWriteTone(RIGHT_SPEAKER_PWM_CHANNEL, rightFreq);
+            ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, RIGHT_SPEAKER_DEFAULT_DUTY);
+        } else ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+
+        hasActivity = true;
     }
 #endif
 
 #ifdef VIBRATION_OUTPUT
-    uint8_t leftvibration = map(leftIntensity, 0, 100, 0, 255);
-    uint8_t rightvibration = map(rightIntensity, 0, 100, 0, 255);
-    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, leftvibration);
-    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, rightvibration);
-    startFeedbackTimer();
+    uint8_t leftvibration = map(leftIntensity, 0, 100, 50, 255);        // below 50 the vibration motor will not work
+    uint8_t rightvibration = map(rightIntensity, 0, 100, 50, 255);
+    if (leftIntensity || rightIntensity) {
+        if (leftIntensity) ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, leftvibration);
+        if (rightIntensity) ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, rightvibration);
+        hasActivity = true;
+    }
 #endif
+
+    // Start timer only once, after all pins are written
+    if (hasActivity) {
+        startFeedbackTimer();
+    }
 }
 
 #if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
 void IRAM_ATTR onFeedbackTimerISR() {
-    if (!feedback_timer) return;
     #ifdef SPEAKER_OUTPUT
     ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
     ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
@@ -296,13 +314,13 @@ void IRAM_ATTR onFeedbackTimerISR() {
 }
 
 void startFeedbackTimer() {
-    if (!feedback_timer) return;
-    timerAlarmWrite(feedback_timer, 100000, false);              // 100000 us = 100 ms
+    timerAlarmDisable(feedback_timer);  // Disable first to clear any pending interrupt
+    timerWrite(feedback_timer, 0);      // Reset timer counter to 0
+    timerAlarmWrite(feedback_timer, 1000000, false);              // 1000000 us = 1000 ms
     timerAlarmEnable(feedback_timer);
 }
 
 void stopFeedback() {
-    if (!feedback_timer) return;
     #ifdef SPEAKER_OUTPUT
     ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
     ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
@@ -312,21 +330,7 @@ void stopFeedback() {
     ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
     #endif
     timerAlarmDisable(feedback_timer);
-}
-#endif
-
-#ifdef SPEAKER_OUTPUT
-void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq) {
-    if (!feedback_timer) return;
-    if (leftFreq) {
-        ledcWriteTone(LEFT_SPEAKER_PWM_CHANNEL, leftFreq);
-        ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, LEFT_SPEAKER_DEFAULT_DUTY);
-    } else ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-    if (rightFreq) {
-        ledcWriteTone(RIGHT_SPEAKER_PWM_CHANNEL, rightFreq);
-        ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, RIGHT_SPEAKER_DEFAULT_DUTY);
-    } else ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-    startFeedbackTimer();
+    timerWrite(feedback_timer, 0);      // Reset timer counter
 }
 #endif
 
@@ -522,8 +526,8 @@ void bruteForceTuning(){
 void loop() {
     // try to do a measurement
     #ifdef TEST_MODE
-        // vibrate_motor_test();
-        // buzzer_test();
+        vibrate_motor_test();
+        buzzer_test();
         #ifndef DISABLE_TOF
             bruteForceTuning();
         #endif
@@ -600,8 +604,24 @@ void loop() {
             }
         #endif
 
-
+#ifdef test_feedback
             giveUserFeedback(0, 0, 100);
+            Serial.println("Right feedback 100");
+            delay(1000);
+            giveUserFeedback(0, 0, 50);
+            Serial.println("Right feedback 50");
+            delay(1000);
+            giveUserFeedback(0, 0, 1);
+            Serial.println("Right feedback 1");
+            delay(5000);
+            giveUserFeedback(100, 0, 0);
+            Serial.println("Left feedback");
+            delay(5000);
+            giveUserFeedback(0, 100, 0);
+            Serial.println("Middle feedback");
+            delay(5000);
+            Serial.println("No feedback");
+#endif
 
         #ifdef DELAY_IN_LOOP
             delay(2000);
