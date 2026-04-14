@@ -11,7 +11,7 @@
 #include "echo_sensor.h"
 
 // setup built in NeoPixel
-#define NEOPIXEL_PIN 21
+#define NEOPIXEL_PIN 48  // 21 for old ESP32
 #define NUM_PIXELS 1
 Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -50,8 +50,8 @@ EchoSensor echosensor(8, 1);
 #define RIGHT_VIBRATION_PWM_RESOLUTION 8
 
 // setup two I2C busses.
-#define LPn_PIN_1 1
-#define SDA_PIN_1 2
+#define LPn_PIN_1 2
+#define SDA_PIN_1 4
 #define SCL_PIN_1 3
 ToFSensor sensor1(&Wire, LPn_PIN_1, sensorSize, 1);
 
@@ -107,14 +107,14 @@ void setup() {
     Wire1.begin(SDA_PIN_2, SCL_PIN_2);
     Wire1.setClock(800000);  // 800kHz
 
-    // start sensors, if fail -> Red
-    if(!sensor1.begin(sensorSize, 60, 5, 80)) {
+    //start sensors, if fail -> Red
+    if(!sensor1.begin(sensorSize, 45, 20, 50)) {
         pixels.setPixelColor(0, pixels.Color(255, 0, 0));
         pixels.show();
         delay(2000);
         esp_restart();
     }
-    if(!sensor2.begin(sensorSize, 60, 5, 80)) {
+    if(!sensor2.begin(sensorSize, 45, 20, 50)) {
         pixels.setPixelColor(0, pixels.Color(255, 0, 0));
         pixels.show();
         delay(2000);
@@ -536,6 +536,24 @@ void bruteForceTuning(){
 
 void loop() {
     // try to do a measurement
+    #ifdef test_feedback
+        giveUserFeedback(0, 0, 100);
+        Serial.println("Right feedback 100");
+        delay(1000);
+        giveUserFeedback(0, 0, 50);
+        Serial.println("Right feedback 50");
+        delay(1000);
+        giveUserFeedback(0, 0, 1);
+        Serial.println("Right feedback 1");
+        delay(5000);
+        giveUserFeedback(100, 0, 0);
+        Serial.println("Left feedback");
+        delay(5000);
+        giveUserFeedback(0, 100, 0);
+        Serial.println("Middle feedback");
+        delay(5000);
+        Serial.println("No feedback");
+    #endif
     #ifdef TEST_MODE
         vibrate_motor_test();
         buzzer_test();
@@ -550,8 +568,10 @@ void loop() {
 
             // if both sensors are ready, process the data.
             if (sensor1Ready && sensor2Ready) {
-        
+            //if (sensor2Ready) {
+                
                 const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
+                //const std::vector<uint16_t> &data1_ref = sensor2.fetchRawData();
                 const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
 
                 // dump data frame
@@ -614,25 +634,6 @@ void loop() {
                 echosensor.trigger();
             }
         #endif
-
-#ifdef test_feedback
-            giveUserFeedback(0, 0, 100);
-            Serial.println("Right feedback 100");
-            delay(1000);
-            giveUserFeedback(0, 0, 50);
-            Serial.println("Right feedback 50");
-            delay(1000);
-            giveUserFeedback(0, 0, 1);
-            Serial.println("Right feedback 1");
-            delay(5000);
-            giveUserFeedback(100, 0, 0);
-            Serial.println("Left feedback");
-            delay(5000);
-            giveUserFeedback(0, 100, 0);
-            Serial.println("Middle feedback");
-            delay(5000);
-            Serial.println("No feedback");
-#endif
 
         #ifdef DELAY_IN_LOOP
             delay(2000);
