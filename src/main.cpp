@@ -25,8 +25,8 @@ void startFeedbackTimer();
 void stopFeedback();
 
 // For speaker output
-#define LEFT_SPEAKER_PIN 10                                 // Pin 40 is used for JTAG, so JTAG will not work
-#define RIGHT_SPEAKER_PIN 9                                 // Pin 42 seems to be free and supports PWM
+#define LEFT_SPEAKER_PIN 10
+#define RIGHT_SPEAKER_PIN 9
 
 #define LEFT_SPEAKER_PWM_CHANNEL 0                          // LEDC channel 0 is used for controlling the speaker tone, not for leds
 #define RIGHT_SPEAKER_PWM_CHANNEL 1                         // LEDC channel 1 is used for controlling the right speaker tone
@@ -40,6 +40,7 @@ void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 
 // Echosensor setup: trigpin, echopin
 EchoSensor echosensor(8, 1);
+uint16_t echoDistance = 0;
 
 // For vibration output
 #define LEFT_VIBRATION_PIN 10
@@ -59,6 +60,10 @@ ToFSensor sensor1(&Wire, LPn_PIN_1, sensorSize, 1);
 #define SDA_PIN_2 6
 #define SCL_PIN_2 5
 ToFSensor sensor2(&Wire1, LPn_PIN_2, sensorSize, 2);
+
+bool detectLeft = false;
+bool detectRight = false;
+bool detectMid = false;
 
 // data buffer
 uint8_t bufferIndex = 0;
@@ -181,26 +186,9 @@ void setup() {
 //     }
 // }
 
-uint8_t distanceToIntensity(uint16_t distance) {
-    if (distance == 0) return 0;
-
-    if (distance <= 200) return 100;
-    else if (distance <= 400) return 80;
-    else if (distance <= 600) return 60;
-    else if (distance <= 800) return 40;
-    else if (distance <= 1000) return 20;
-    else return 0;
-}
-
 void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, float percentage = 0.40) {
     uint8_t totalCols = 8;
     uint8_t totalRows = 4;
-    bool detectLeft = false;
-    bool detectRight = false;
-    bool detectMid = false;
-    uint8_t leftIntensity = 0;
-    uint8_t midIntensity = 0;
-    uint8_t rightIntensity = 0;
 
     struct Zone {
         const char* label;
@@ -217,8 +205,6 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
     for (const Zone &zone : zones) {
         int count = 0;
         int total = 0;
-        
-        uint16_t minDist = 9999;
 
         for (uint8_t row = 0; row < totalRows; ++row) {
             for (uint8_t col = zone.startCol; col < zone.endCol; ++col) {
@@ -227,11 +213,6 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
                 if (val == 0) continue;
 
                 total++;
-
-                if (val < minDist) {
-                    minDist = val;
-                }
-
                 if (val < threshold) count++;
             }
         }
@@ -239,27 +220,18 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
         if (total == 0) continue;
 
         if (count >= total * percentage) {
-            uint8_t intensity = distanceToIntensity(minDist);
-            if (strcmp(zone.label, "LEFT") == 0) {
-                // detectLeft = true;
-                leftIntensity = intensity;
-            } else if (strcmp(zone.label, "RIGHT") == 0) {
-                // detectRight = true;
-                rightIntensity = intensity;
+            if (zone.label == "LEFT") {
+                detectLeft = true;
+            } if (zone.label == "RIGHT") {
+                detectRight = true;
             } else {
-                // detectMid = true;
-                midIntensity = intensity;
+                detectMid = true;
             }
             Serial.print(zone.label);
             Serial.println(": OBJECT DETECTED");
         }
     }
-
-    giveUserFeedback(leftIntensity, midIntensity, rightIntensity);
 }
-
-
-
 // -------------------------------------------------------------------------------------------------------------
 
 // void dumpDataFrame(const std::vector<uint16_t> &data) {
@@ -640,7 +612,7 @@ void loop() {
 
                 // detect close objects
                 detectCloseObject(averagedGrid);
-
+                
                 // store avoidance signal somewhere
                         
             }
@@ -655,9 +627,9 @@ void loop() {
                 if (echosensor.timedOut()) {
                     Serial.println("Echo Sensor: No object detected within range.");
                 } else {
-                    uint16_t distance = echosensor.getDistanceCM();
+                    echoDistance = echosensor.getDistanceCM();
                     Serial.print("Echo Sensor Distance: ");
-                    Serial.print(distance);
+                    Serial.print(echoDistance);
                     Serial.println(" cm");
                 }
                 echosensor.trigger();
