@@ -60,6 +60,10 @@ ToFSensor sensor1(&Wire, LPn_PIN_1, sensorSize, 1);
 #define SCL_PIN_2 2
 ToFSensor sensor2(&Wire1, LPn_PIN_2, sensorSize, 2);
 
+bool detectLeft = false;
+bool detectRight = false;
+bool detectMid = false;
+
 // data buffer
 uint8_t bufferIndex = 0;
 uint8_t bufferLength = 12;
@@ -215,6 +219,13 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
         if (total == 0) continue;
 
         if (count >= total * percentage) {
+            if (zone.label == "LEFT") {
+                detectLeft = true;
+            } if (zone.label == "RIGHT") {
+                detectRight = true;
+            } else {
+                detectMid = true;
+            }
             Serial.print(zone.label);
             Serial.println(": OBJECT DETECTED");
         }
