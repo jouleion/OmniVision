@@ -192,15 +192,20 @@ uint8_t distanceToIntensity(uint16_t distance) {
     else return 0;
 }
 
-void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, float percentage = 0.40) {
+void detectCloseObject(
+    const std::vector<uint16_t> &grid,
+    uint8_t &leftIntensity,
+    uint8_t &midIntensity,
+    uint8_t &rightIntensity,
+    int threshold,
+    float percentage
+) {
     uint8_t totalCols = 8;
     uint8_t totalRows = 4;
-    bool detectLeft = false;
-    bool detectRight = false;
-    bool detectMid = false;
-    uint8_t leftIntensity = 0;
-    uint8_t midIntensity = 0;
-    uint8_t rightIntensity = 0;
+
+    leftIntensity = 0;
+    midIntensity = 0;
+    rightIntensity = 0;
 
     struct Zone {
         const char* label;
@@ -217,7 +222,6 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
     for (const Zone &zone : zones) {
         int count = 0;
         int total = 0;
-        
         uint16_t minDist = 9999;
 
         for (uint8_t row = 0; row < totalRows; ++row) {
@@ -240,25 +244,23 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
 
         if (count >= total * percentage) {
             uint8_t intensity = distanceToIntensity(minDist);
+
             if (strcmp(zone.label, "LEFT") == 0) {
-                // detectLeft = true;
                 leftIntensity = intensity;
-            } else if (strcmp(zone.label, "RIGHT") == 0) {
-                // detectRight = true;
+            } 
+            else if (strcmp(zone.label, "RIGHT") == 0) {
                 rightIntensity = intensity;
-            } else {
-                // detectMid = true;
+            } 
+            else {
                 midIntensity = intensity;
             }
+
             Serial.print(zone.label);
-            Serial.println(": OBJECT DETECTED");
+            Serial.print(": intensity = ");
+            Serial.println(intensity);
         }
     }
-
-    giveUserFeedback(leftIntensity, midIntensity, rightIntensity);
 }
-
-
 
 // -------------------------------------------------------------------------------------------------------------
 
@@ -632,15 +634,14 @@ void loop() {
 
                 Serial.println("Averaged Grid, with depth " + String(depth) + ":");
                 dumpDataFrame(averagedGrid);
-        
-                // detect the distance in each sector (left, middle, right) -> (return intensity o)
-                // detectCloseObject(combinedGrid, 0, 5, "LEFT");
-                // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
-                // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
 
+                uint8_t leftIntensity = 0;
+                uint8_t midIntensity = 0;
+                uint8_t rightIntensity = 0;
                 // detect close objects
-                detectCloseObject(averagedGrid);
+                detectCloseObject(averagedGrid, leftIntensity, midIntensity, rightIntensity, 1000, 0.40);
 
+                // giveUserFeedback(leftIntensity, midIntensity, rightIntensity);
                 // store avoidance signal somewhere
                         
             }
