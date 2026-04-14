@@ -25,8 +25,8 @@ void startFeedbackTimer();
 void stopFeedback();
 
 // For speaker output
-#define LEFT_SPEAKER_PIN 12                                 // Pin 40 is used for JTAG, so JTAG will not work
-#define RIGHT_SPEAKER_PIN 11                                // Pin 42 seems to be free and supports PWM
+#define LEFT_SPEAKER_PIN 10                                 // Pin 40 is used for JTAG, so JTAG will not work
+#define RIGHT_SPEAKER_PIN 9                                 // Pin 42 seems to be free and supports PWM
 
 #define LEFT_SPEAKER_PWM_CHANNEL 0                          // LEDC channel 0 is used for controlling the speaker tone, not for leds
 #define RIGHT_SPEAKER_PWM_CHANNEL 1                         // LEDC channel 1 is used for controlling the right speaker tone
