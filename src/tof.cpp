@@ -64,7 +64,11 @@ void ToFSensor::setFrequency(uint8_t frequency) {
 
 bool ToFSensor::getSensorReady() {
     uint8_t new_data_ready = 0;
-    sensor.vl53l7cx_check_data_ready(&new_data_ready);
+    int check_status = sensor.vl53l7cx_check_data_ready(&new_data_ready);
+    if (check_status != VL53L7CX_STATUS_OK) {
+        Serial.print("Sensor "); Serial.print(sensorId); Serial.println(" check_data_ready failed");
+        return false;
+    }
     if (new_data_ready) {
         VL53L7CX_ResultsData results;
         int status = sensor.vl53l7cx_get_ranging_data(&results);
@@ -73,6 +77,8 @@ bool ToFSensor::getSensorReady() {
                 rawDataGrid[i] = results.distance_mm[i];
             }
             return true;
+        } else {
+            Serial.print("Sensor "); Serial.print(sensorId); Serial.print(" get_ranging_data failed: "); Serial.println(status);
         }
     }
     return false;

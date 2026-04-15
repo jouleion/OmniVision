@@ -83,6 +83,7 @@ std::vector<std::vector<uint16_t>> rawDataBuffer(
 uint8_t storedLeftIntensity = 0;
 uint8_t storedMidIntensity = 0;
 uint8_t storedRightIntensity = 0;
+volatile bool feedbackTimeout = false;
 
 void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
 
@@ -116,10 +117,12 @@ void setup() {
     // I2C: sda=5, scl=6
     Wire.begin(SDA_PIN_1, SCL_PIN_1);
     Wire.setClock(800000);  // 800kHz
+    Wire.setTimeout(100);   // 100ms timeout
 
     // I2C: sda=3, scl=2
     Wire1.begin(SDA_PIN_2, SCL_PIN_2);
     Wire1.setClock(800000);  // 800kHz
+    Wire1.setTimeout(100);   // 100ms timeout
 
     //start sensors, if fail -> Red
     if(!sensor1.begin(sensorSize, 45, 20, 50)) {
@@ -338,21 +341,14 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
 }
 
 void IRAM_ATTR onFeedbackTimerISR() {
-    #ifdef SPEAKER_OUTPUT
-    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-    #endif
-    #ifdef VIBRATION_OUTPUT
-    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
-    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
-    #endif
+    feedbackTimeout = true;
     timerAlarmDisable(feedback_timer);
 }
 
 void startFeedbackTimer() {
     timerAlarmDisable(feedback_timer);  // Disable first to clear any pending interrupt
     timerWrite(feedback_timer, 0);      // Reset timer counter to 0
-    timerAlarmWrite(feedback_timer, feedback_duration, false);              // 1000000 us = 1000 ms
+    timerAlarmWrite(feedback_timer, feedback_duration, false);              // 100000 us = 100 ms
     timerAlarmEnable(feedback_timer);
 }
 
@@ -481,8 +477,8 @@ void loop() {
         std::vector<uint16_t> averagedGrid(combinedLength);
         avarageGrid(averagedGrid, depth);
 
-        Serial.println("Averaged Grid, with depth " + String(depth) + ":");
-        dumpDataFrame(averagedGrid);
+        // Serial.println("Averaged Grid, with depth " + String(depth) + ":");
+        // dumpDataFrame(averagedGrid);
 
         
         // detect close objects
@@ -492,16 +488,16 @@ void loop() {
     }
       
     // read echo sensor data (non-blocking)
-    // if(echosensor.newDataAvailable()) {
-    //     if (echosensor.timedOut()) {
-    //         Serial.println("Echo Sensor: No object detected within range.");
-    //     } else {
-    //         echoDistance = echosensor.getDistanceCM();
-    //         echocount++;
-    //         echototal = echototal + echoDistance;
-    //     }
-    //     echosensor.trigger();
-    // }
+    if(echosensor.newDataAvailable()) {
+        if (echosensor.timedOut()) {
+            Serial.println("Echo Sensor: No object detected within range.");
+        } else {
+            echoDistance = echosensor.getDistanceCM();
+            echocount++;
+            echototal = echototal + echoDistance;
+        }
+        echosensor.trigger();
+    }
 
     // give user feedback
     if (millis() - previous_call >= feedback_interval || previous_call > millis()) {     // also account for millis() overflow
@@ -516,11 +512,18 @@ void loop() {
         Serial.println();
         Serial.print("USER FEEDBACK timer");
         // update the intensity settings to give a new 100ms feedback pulse, every second.
-        giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
+        //giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
         echototal = 0;
         echocount = 0;
 
         Serial.print("User feedback done");
     }
+
+    if (feedbackTimeout) {
+        feedbackTimeout = false;
+        stopFeedback();
+    }
+
+    delay(10); // Slow down the loop to prevent excessive polling
 }
 
