@@ -80,9 +80,9 @@ std::vector<std::vector<uint16_t>> rawDataBuffer(
     bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
 );
 
-uint8_t leftIntensity = 0;
-uint8_t midIntensity = 0;
-uint8_t rightIntensity = 0;
+uint8_t storedLeftIntensity = 0;
+uint8_t storedMidIntensity = 0;
+uint8_t storedRightIntensity = 0;
 
 void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
 
@@ -213,18 +213,14 @@ uint8_t distanceToIntensity(uint16_t distance) {
 
 void detectCloseObject(
     const std::vector<uint16_t> &grid,
-    uint8_t &leftIntensity,
-    uint8_t &midIntensity,
-    uint8_t &rightIntensity,
+    uint8_t &storedLeftIntensity,
+    uint8_t &storedMidIntensity,
+    uint8_t &storedRightIntensity,
     int threshold,
     float percentage
 ) {
     uint8_t totalCols = 8;
     uint8_t totalRows = 4;
-
-    leftIntensity = 0;
-    midIntensity = 0;
-    rightIntensity = 0;
 
     struct Zone {
         const char* label;
@@ -260,13 +256,13 @@ void detectCloseObject(
             uint8_t intensity = distanceToIntensity(minDist);
 
             if (strcmp(zone.label, "LEFT") == 0) {
-                leftIntensity = intensity;
+                storedLeftIntensity = intensity;
             } 
             else if (strcmp(zone.label, "RIGHT") == 0) {
-                rightIntensity = intensity;
+                storedRightIntensity = intensity;
             } 
             else {
-                midIntensity = intensity;
+                storedMidIntensity = intensity;
             }
 
             Serial.print(zone.label);
@@ -489,8 +485,9 @@ void loop() {
 
         
         // detect close objects
-        // write to pointer of global variable.
-        detectCloseObject(averagedGrid, leftIntensity, midIntensity, rightIntensity, 1000, 0.40);
+        // write to pointer of local
+
+        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.40);
     }
       
     // read echo sensor data (non-blocking)
