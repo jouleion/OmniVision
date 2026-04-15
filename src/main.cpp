@@ -18,6 +18,10 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
 uint8_t numberOfSensors = 2;
 
+// for calling the feedback function every 1 second
+unsigned long previous_call = 0;
+#define feedback_interval 1000 // in milliseconds
+
 // for all feedback
 static hw_timer_t *feedback_timer = nullptr;
 void IRAM_ATTR onFeedbackTimerISR();
@@ -42,9 +46,11 @@ void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 // Echosensor setup: trigpin, echopin
 EchoSensor echosensor(8, 1); // 8, 1
 uint16_t echoDistance = 0;
+unsigned long echototal = 0;
+uint8_t echocount = 0;
 
 // For vibration output
-#define LEFT_VIBRATION_PIN 12
+#define LEFT_VIBRATION_PIN 13
 #define RIGHT_VIBRATION_PIN 11
 #define LEFT_VIBRATION_PWM_CHANNEL 2
 #define RIGHT_VIBRATION_PWM_CHANNEL 3
@@ -74,8 +80,11 @@ std::vector<std::vector<uint16_t>> rawDataBuffer(
     bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
 );
 
-void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
+uint8_t leftIntensity = 0;
+uint8_t midIntensity = 0;
+uint8_t rightIntensity = 0;
 
+void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
 
 void setupLed(){
     // NeoPixel setup
@@ -156,48 +165,39 @@ void setup() {
     ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
 #endif
 
-// #if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
-    // giveUserFeedback(100, 0, 0);
-    // Serial.println("Left feedback 100");
-    // delay(1000);
-    // giveUserFeedback(100, 0, 0);
-    // Serial.println("Left feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 0, 100);
-    // Serial.println("Right feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 0, 100);
-    // Serial.println("Right feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 100, 0);
-    // Serial.println("Middle feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 100, 0);
-    // Serial.println("Middle feedback 100");
-    // delay(1000);
-// #endif
-
-#ifdef USE_ECHO_SENSOR
-    echosensor.begin();
-    echosensor.trigger();
-    while (1) {
-        if(echosensor.newDataAvailable()) {
-            if (echosensor.timedOut()) {
-                Serial.println("Echo Sensor: No object detected within range.");
-            } else {
-                echoDistance = echosensor.getDistanceCM();
-                Serial.print("Echo Sensor Distance: ");
-                Serial.print(echoDistance);
-                Serial.println(" cm");
-            }
-            echosensor.trigger();
-        }
-    }
-    esp_restart();
+#if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+    giveUserFeedback(50, 0, 0);
+    Serial.println("Left feedback 50");
+    delay(500);
+    giveUserFeedback(0, 0, 50);
+    Serial.println("Right feedback 50");
+    delay(500);
+    giveUserFeedback(0, 50, 0);
+    Serial.println("Middle feedback 50");
+    delay(500);
 #endif
+
+// #ifdef USE_ECHO_SENSOR
+//     echosensor.begin();
+//     echosensor.trigger();
+//     while (1) {
+//         if(echosensor.newDataAvailable()) {
+//             if (echosensor.timedOut()) {
+//                 Serial.println("Echo Sensor: No object detected within range.");
+//             } else {
+//                 echoDistance = echosensor.getDistanceCM();
+//                 Serial.print("Echo Sensor Distance: ");
+//                 Serial.print(echoDistance);
+//                 Serial.println(" cm");
+//             }
+//             echosensor.trigger();
+//         }
+//     }
+// #endif
 
     pixels.setPixelColor(0, pixels.Color(0, 255, 0));  // Green
     pixels.show();
+    previous_call = millis();
 }
 
 // DETECTION CODE------------------------------------------------------------------------------------------------
@@ -673,9 +673,7 @@ void loop() {
                 Serial.println("Averaged Grid, with depth " + String(depth) + ":");
                 dumpDataFrame(averagedGrid);
 
-                uint8_t leftIntensity = 0;
-                uint8_t midIntensity = 0;
-                uint8_t rightIntensity = 0;
+                
                 // detect close objects
                 detectCloseObject(averagedGrid, leftIntensity, midIntensity, rightIntensity, 1000, 0.40);
 
@@ -695,17 +693,20 @@ void loop() {
                     Serial.println("Echo Sensor: No object detected within range.");
                 } else {
                     echoDistance = echosensor.getDistanceCM();
-                    Serial.print("Echo Sensor Distance: ");
-                    Serial.print(echoDistance);
-                    Serial.println(" cm");
+                    echocount++;
+                    echototal = echototal + echoDistance;
                 }
                 echosensor.trigger();
             }
         #endif
-
-        #ifdef DELAY_IN_LOOP
-            delay(2000);
-        #endif
     #endif
+    if (millis() - previous_call >= feedback_interval || previous_call > millis()) {     // also account for millis() overflow
+        previous_call = millis();
+        uint16_t average_echo = (echocount > 0) ? (echototal / echocount) : 0;
+        uint8_t echo_intensity = distanceToIntensity(average_echo * 10);
+        giveUserFeedback(leftIntensity, max(midIntensity, echo_intensity), rightIntensity);
+        echototal = 0;
+        echocount = 0;
+    }
 }
 
