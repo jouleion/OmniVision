@@ -491,24 +491,26 @@ void loop() {
     }
       
     // read echo sensor data (non-blocking)
-    if(echosensor.newDataAvailable()) {
-        if (echosensor.timedOut()) {
-            Serial.println("Echo Sensor: No object detected within range.");
-        } else {
-            echoDistance = echosensor.getDistanceCM();
-            echocount++;
-            echototal = echototal + echoDistance;
-        }
-        echosensor.trigger();
-    }
+    // if(echosensor.newDataAvailable()) {
+    //     if (echosensor.timedOut()) {
+    //         Serial.println("Echo Sensor: No object detected within range.");
+    //     } else {
+    //         echoDistance = echosensor.getDistanceCM();
+    //         echocount++;
+    //         echototal = echototal + echoDistance;
+    //     }
+    //     echosensor.trigger();
+    // }
 
     // give user feedback
     if (millis() - previous_call >= feedback_interval || previous_call > millis()) {     // also account for millis() overflow
         previous_call = millis();
         
         // convert echo reading
-        uint16_t average_echo = (echocount > 0) ? (echototal / echocount) : 0;
-        uint8_t echo_intensity = distanceToIntensity(average_echo * 10);
+        // uint16_t average_echo = (echocount > 0) ? (echototal / echocount) : 0;
+        // uint8_t echo_intensity = distanceToIntensity(average_echo * 10);
+
+        uint8_t echo_intensity = 0; 
 
         // update the intensity settings to give a new 100ms feedback pulse, every second.
         giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
