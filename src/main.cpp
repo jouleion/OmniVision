@@ -26,7 +26,7 @@ ToFSensor sensor2(&Wire1, LPn_PIN_2, sensorSize, 2);
 
 // data buffer
 uint8_t bufferIndex = 0;
-uint8_t bufferLength = 12;
+uint8_t bufferLength = 6;
 // list of lists. (dynamic size) init directly based on size, and combinedframe resolution
 std::vector<std::vector<uint16_t>> rawDataBuffer(
     bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
@@ -49,6 +49,14 @@ uint8_t echocount = 0;
 #define LEFT_VIBRATION_PIN 13
 #define RIGHT_VIBRATION_PIN 15
 
+
+#define TOF_F 45
+#define TOF_IT 10
+#define TOF_SP 70
+
+#define MIN_DISTANCE 500
+#define DISTANCE_THRESHOLD 0.6
+
 #define PWM_RESOLUTION 8
 // duty= 200
 // min = 200 - 5000Hz frequency range
@@ -59,7 +67,7 @@ uint8_t storedRightIntensity = 0;
 
 unsigned long deltaTime = 0;
 unsigned long lastFeedbackUpdate = 0;
-const unsigned long feedbackUpdateInterval = 1000; // milliseconds
+const unsigned long feedbackUpdateInterval = 750; // milliseconds
 const unsigned long feedbackDurationInterval = 100; // milliseconds
 bool feedbackIsOn = false;
 
@@ -128,13 +136,13 @@ void setupTOF(){
     Wire1.setTimeout(100);   // 100ms timeout
 
     //start sensors, if fail -> Red
-    if(!sensor1.begin(sensorSize, 45, 20, 50)) {
+    if(!sensor1.begin(sensorSize, TOF_F, TOF_IT, TOF_SP)) {
         pixels.setPixelColor(0, pixels.Color(255, 0, 0));
         pixels.show();
         delay(2000);
         esp_restart();
     }
-    if(!sensor2.begin(sensorSize, 45, 20, 50)) {
+    if(!sensor2.begin(sensorSize, TOF_F, TOF_IT, TOF_SP)) {
         pixels.setPixelColor(0, pixels.Color(255, 0, 0));
         pixels.show();
         delay(2000);
@@ -189,9 +197,9 @@ void detectCloseObject(
     };
 
     Zone zones[] = {
-        { "RIGHT",   0, 3 },
+        { "LEFT",   0, 3 },
         { "MIDDLE", 3, 5 },
-        { "LEFT",  5, 8 }
+        { "RIGHT",  5, 8 }
     };
 
     
@@ -322,13 +330,16 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
     }
 }
 
-void mapIntensityToDuty(uint8_t &left, uint8_t &right, uint8_t leftintensity, uint8_t midintensity, uint8_t rightintensity) {
+void mapIntensityToDuty(uint8_t &left, uint8_t &right, uint8_t leftintensity, uint8_t midintensity, uint8_t rightintensity, uint16_t echoDistance) {
     // filter out to low values
     if(leftintensity <= 0 && midintensity <= 0 && rightintensity <= 0) {
         left = 0;
         right = 0;
         return;
     }
+
+    // if echo returns a really low value, it should override all tof readings.
+    // uint8_t sound = map(echoDistance, 0, MIN_DISTANCE, 255, 0);
 
     // convert intensity percentage to duty cycle (0-255)
     leftintensity = map(leftintensity, 0, 100, 50, 255);
@@ -365,11 +376,11 @@ void writeFeedback(uint8_t left, uint8_t right){
     // write to pwm channels
     // speakers
 
-    uint8_t left_f = map(left, 0, 255, 1000, 4000); 
+    uint8_t left_f = map(left, 0, 255, 4000, 500); 
     ledcWriteTone(0, left_f);
     ledcWrite(0, left);
 
-    uint8_t right_f = map(right, 0, 255, 1000, 4000);
+    uint8_t right_f = map(right, 0, 255, 4000, 500);
     ledcWriteTone(1, right_f);
     ledcWrite(1, right);
 
@@ -385,6 +396,7 @@ void loop() {
     // if both sensors are ready, process the data.
     if (sensor1Ready && sensor2Ready) {
         const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
+        // dumpDataFrame(data1_ref);
         const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
 
         // dump data frame
@@ -402,7 +414,11 @@ void loop() {
         // double check size of data
         if (data1_ref.size() == sensorSize && data2_ref.size() == sensorSize) {
             // combine data into one grid. (pass combinedGrid by reference)
-            combineGrid(data1_ref, data2_ref, combinedGrid);
+
+            // swap left and right
+            combineGrid(data2_ref, data1_ref, combinedGrid);
+            // Serial.println("Combined Grid:");
+            // dumpDataFrame(combinedGrid);
 
             // move into the buffer to avoid copying element-by-element
             addToRawBuffer(std::move(combinedGrid));
@@ -415,10 +431,11 @@ void loop() {
         avarageGrid(averagedGrid, depth);
 
         // Serial.println("Averaged Grid, with depth " + String(depth) + ":");
-        // dumpDataFrame(averagedGrid);
+        Serial.println("Averaged Grid:");
+        dumpDataFrame(averagedGrid);
         
-        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.50);
-        Serial.println(storedMidIntensity);
+        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, MIN_DISTANCE, DISTANCE_THRESHOLD);
+
     }
       
     // read echo sensor data (non-blocking)
@@ -456,7 +473,7 @@ void loop() {
         // Serial.print("Update feedback values");
         
         uint8_t leftDuty, rightDuty;
-        mapIntensityToDuty(leftDuty, rightDuty, storedLeftIntensity, storedMidIntensity, storedRightIntensity);
+        mapIntensityToDuty(leftDuty, rightDuty, storedLeftIntensity, storedMidIntensity, storedRightIntensity, echoDistance);
         Serial.print("Left Duty: ");
         Serial.print(leftDuty); 
         Serial.print(", Right Duty: ");
@@ -479,6 +496,8 @@ void loop() {
 
    
 
-    delay(10); // Slow down the loop to prevent excessive polling
+    delay(50); // Slow down the loop to prevent excessive polling
+
+    // delay(1000);
 }
 
