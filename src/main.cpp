@@ -28,6 +28,7 @@ void IRAM_ATTR onFeedbackTimerISR();
 void startFeedbackTimer();
 void stopFeedback();
 #define feedback_duration 100000 // in microseconds
+volatile bool feedbackTimerFired = false;
 
 // For speaker output
 #define LEFT_SPEAKER_PIN 10
@@ -244,7 +245,7 @@ void detectCloseObject(
                 uint16_t val = grid[row * totalCols + col];
 
                 if (val == 0) continue;
-
+                if (val < minDist) minDist = val;
                 total++;
                 if (val < threshold) count++;
             }
@@ -338,14 +339,9 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
 }
 
 void IRAM_ATTR onFeedbackTimerISR() {
-    #ifdef SPEAKER_OUTPUT
-    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-    #endif
-    #ifdef VIBRATION_OUTPUT
-    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
-    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
-    #endif
+    // ISR: avoid calling non-ISR-safe functions (like ledcWrite) here.
+    // Set a flag and disable the alarm; main loop will handle stopping outputs.
+    feedbackTimerFired = true;
     timerAlarmDisable(feedback_timer);
 }
 
@@ -442,6 +438,19 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
 }
 
 void loop() {
+    // if ISR signalled, stop outputs here (safe context)
+    if (feedbackTimerFired) {
+        #ifdef SPEAKER_OUTPUT
+        ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+        ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+        #endif
+        #ifdef VIBRATION_OUTPUT
+        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+        #endif
+        feedbackTimerFired = false;
+        Serial.println("USER FEEDBACK timer: stopped outputs (handled in loop)");
+    }
     bool sensor1Ready = sensor1.getSensorReady();
     bool sensor2Ready = sensor2.getSensorReady();
 
