@@ -47,7 +47,7 @@ uint8_t echocount = 0;
 #define LEFT_SPEAKER_PIN 10
 #define RIGHT_SPEAKER_PIN 9
 #define LEFT_VIBRATION_PIN 13
-#define RIGHT_VIBRATION_PIN 11
+#define RIGHT_VIBRATION_PIN 15
 
 #define PWM_RESOLUTION 8
 // duty= 200
@@ -63,6 +63,7 @@ const unsigned long feedbackUpdateInterval = 1000; // milliseconds
 const unsigned long feedbackDurationInterval = 100; // milliseconds
 bool feedbackIsOn = false;
 
+void writeFeedback(uint8_t left, uint8_t right);
 
 // void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
 
@@ -91,6 +92,9 @@ void setupFeedback(){
     ledcSetup(3, 1000, 8);
     ledcAttachPin(LEFT_VIBRATION_PIN, 3);
     ledcWrite(3, 0);
+
+
+    writeFeedback(100, 100);
 
 }
 
@@ -146,6 +150,15 @@ void setup() {
     //while(!Serial);
 
     setupFeedback();
+
+    // test feedback
+    writeFeedback(0, 100);
+    delay(100);
+    writeFeedback(100, 0);
+    delay(100);
+    writeFeedback(0, 0);
+    delay(100);
+
     setupLed();
     setupTOF();
 
@@ -176,9 +189,9 @@ void detectCloseObject(
     };
 
     Zone zones[] = {
-        { "LEFT",   0, 2 },
-        { "MIDDLE", 2, 6 },
-        { "RIGHT",  6, 8 }
+        { "RIGHT",   0, 3 },
+        { "MIDDLE", 3, 5 },
+        { "LEFT",  5, 8 }
     };
 
     
@@ -351,12 +364,18 @@ void mapIntensityToDuty(uint8_t &left, uint8_t &right, uint8_t leftintensity, ui
 void writeFeedback(uint8_t left, uint8_t right){
     // write to pwm channels
     // speakers
-    // ledcWrite(0, left);
-    // ledcWrite(1, right);
+
+    uint8_t left_f = map(left, 0, 255, 1000, 4000); 
+    ledcWriteTone(0, left_f);
+    ledcWrite(0, left);
+
+    uint8_t right_f = map(right, 0, 255, 1000, 4000);
+    ledcWriteTone(1, right_f);
+    ledcWrite(1, right);
 
     // vibration
-    ledcWrite(2, left);
-    ledcWrite(3, right);
+    // ledcWrite(2, left); // problem boi
+    // ledcWrite(3, right);
 }
 
 void loop() {
@@ -365,8 +384,6 @@ void loop() {
 
     // if both sensors are ready, process the data.
     if (sensor1Ready && sensor2Ready) {
-        
-
         const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
         const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
 
@@ -400,7 +417,8 @@ void loop() {
         // Serial.println("Averaged Grid, with depth " + String(depth) + ":");
         // dumpDataFrame(averagedGrid);
         
-        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.70);
+        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.50);
+        Serial.println(storedMidIntensity);
     }
       
     // read echo sensor data (non-blocking)
@@ -415,15 +433,27 @@ void loop() {
         echosensor.trigger();
     }
 
+    // ---------------- FEEDBACK ---------------------
     // time since last feedback update
     deltaTime = millis() - lastFeedbackUpdate;
+
+     // stop feedback after shorter duration
+    if(deltaTime > feedbackDurationInterval && feedbackIsOn) {     // also account for millis() overflow
+        // set left and right duty to zero to stop feedback
+        // Serial.println("Stop feedback");
+
+        // Serial.print(" | Feedback stop");
+        // Serial.println(millis());
+        writeFeedback(0, 0);
+        feedbackIsOn = false;
+    }
 
     // write feedback value every 1sec
     if (deltaTime >= feedbackUpdateInterval || lastFeedbackUpdate > millis()) {     // also account for millis() overflow
         lastFeedbackUpdate = millis();
         feedbackIsOn = true;
 
-        Serial.print("Update feedback values");
+        // Serial.print("Update feedback values");
         
         uint8_t leftDuty, rightDuty;
         mapIntensityToDuty(leftDuty, rightDuty, storedLeftIntensity, storedMidIntensity, storedRightIntensity);
@@ -431,8 +461,15 @@ void loop() {
         Serial.print(leftDuty); 
         Serial.print(", Right Duty: ");
         Serial.println(rightDuty);
-        
+
         writeFeedback(leftDuty, rightDuty);
+
+        // Serial.print("Feedback start");
+        // Serial.print(millis());
+        // static int counter = 50;
+        // counter+=50;
+        // if (counter > 256) { counter = 0; }
+        // writeFeedback(counter, counter); // for testing, ramp up and down the feedback intensity. replace with actual values later.
 
         // reset intensities after feedback is given
         storedLeftIntensity = 0;
@@ -440,13 +477,7 @@ void loop() {
         storedRightIntensity = 0;
     }
 
-    // stop feedback after shorter duration
-    if(deltaTime > feedbackDurationInterval && feedbackIsOn || lastFeedbackUpdate > millis()) {     // also account for millis() overflow
-        // set left and right duty to zero to stop feedback
-        Serial.println("Stop feedback");
-        writeFeedback(0, 0);
-        feedbackIsOn = false;
-    }
+   
 
     delay(10); // Slow down the loop to prevent excessive polling
 }
