@@ -511,7 +511,7 @@ void loop() {
         uint8_t echo_intensity = distanceToIntensity(average_echo * 10);
 
         // update the intensity settings to give a new 100ms feedback pulse, every second.
-        giveUserFeedback(leftIntensity, max(midIntensity, echo_intensity), rightIntensity);
+        giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
         echototal = 0;
         echocount = 0;
     }
