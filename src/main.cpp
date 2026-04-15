@@ -23,6 +23,7 @@ static hw_timer_t *feedback_timer = nullptr;
 void IRAM_ATTR onFeedbackTimerISR();
 void startFeedbackTimer();
 void stopFeedback();
+#define feedback_duration 100000 // in microseconds
 
 // For speaker output
 #define LEFT_SPEAKER_PIN 10
@@ -39,12 +40,12 @@ void stopFeedback();
 void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 
 // Echosensor setup: trigpin, echopin
-EchoSensor echosensor(8, 1);
+EchoSensor echosensor(8, 1); // 8, 1
 uint16_t echoDistance = 0;
 
 // For vibration output
-#define LEFT_VIBRATION_PIN 10
-#define RIGHT_VIBRATION_PIN 13 
+#define LEFT_VIBRATION_PIN 12
+#define RIGHT_VIBRATION_PIN 11
 #define LEFT_VIBRATION_PWM_CHANNEL 2
 #define RIGHT_VIBRATION_PWM_CHANNEL 3
 #define LEFT_VIBRATION_PWM_RESOLUTION 8
@@ -72,6 +73,9 @@ uint8_t bufferLength = 12;
 std::vector<std::vector<uint16_t>> rawDataBuffer(
     bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
 );
+
+void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
+
 
 void setupLed(){
     // NeoPixel setup
@@ -152,9 +156,44 @@ void setup() {
     ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
 #endif
 
+// #if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+    // giveUserFeedback(100, 0, 0);
+    // Serial.println("Left feedback 100");
+    // delay(1000);
+    // giveUserFeedback(100, 0, 0);
+    // Serial.println("Left feedback 100");
+    // delay(1000);
+    // giveUserFeedback(0, 0, 100);
+    // Serial.println("Right feedback 100");
+    // delay(1000);
+    // giveUserFeedback(0, 0, 100);
+    // Serial.println("Right feedback 100");
+    // delay(1000);
+    // giveUserFeedback(0, 100, 0);
+    // Serial.println("Middle feedback 100");
+    // delay(1000);
+    // giveUserFeedback(0, 100, 0);
+    // Serial.println("Middle feedback 100");
+    // delay(1000);
+// #endif
+
 #ifdef USE_ECHO_SENSOR
     echosensor.begin();
     echosensor.trigger();
+    while (1) {
+        if(echosensor.newDataAvailable()) {
+            if (echosensor.timedOut()) {
+                Serial.println("Echo Sensor: No object detected within range.");
+            } else {
+                echoDistance = echosensor.getDistanceCM();
+                Serial.print("Echo Sensor Distance: ");
+                Serial.print(echoDistance);
+                Serial.println(" cm");
+            }
+            echosensor.trigger();
+        }
+    }
+    esp_restart();
 #endif
 
     pixels.setPixelColor(0, pixels.Color(0, 255, 0));  // Green
@@ -186,9 +225,31 @@ void setup() {
 //     }
 // }
 
-void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, float percentage = 0.40) {
+uint8_t distanceToIntensity(uint16_t distance) {
+    if (distance == 0) return 0;
+
+    if (distance <= 200) return 100;
+    else if (distance <= 400) return 80;
+    else if (distance <= 600) return 60;
+    else if (distance <= 800) return 40;
+    else if (distance <= 1000) return 20;
+    else return 0;
+}
+
+void detectCloseObject(
+    const std::vector<uint16_t> &grid,
+    uint8_t &leftIntensity,
+    uint8_t &midIntensity,
+    uint8_t &rightIntensity,
+    int threshold,
+    float percentage
+) {
     uint8_t totalCols = 8;
     uint8_t totalRows = 4;
+
+    leftIntensity = 0;
+    midIntensity = 0;
+    rightIntensity = 0;
 
     struct Zone {
         const char* label;
@@ -205,6 +266,7 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
     for (const Zone &zone : zones) {
         int count = 0;
         int total = 0;
+        uint16_t minDist = 9999;
 
         for (uint8_t row = 0; row < totalRows; ++row) {
             for (uint8_t col = zone.startCol; col < zone.endCol; ++col) {
@@ -220,15 +282,21 @@ void detectCloseObject(const std::vector<uint16_t> &grid, int threshold = 1000, 
         if (total == 0) continue;
 
         if (count >= total * percentage) {
-            if (zone.label == "LEFT") {
-                detectLeft = true;
-            } if (zone.label == "RIGHT") {
-                detectRight = true;
-            } else {
-                detectMid = true;
+            uint8_t intensity = distanceToIntensity(minDist);
+
+            if (strcmp(zone.label, "LEFT") == 0) {
+                leftIntensity = intensity;
+            } 
+            else if (strcmp(zone.label, "RIGHT") == 0) {
+                rightIntensity = intensity;
+            } 
+            else {
+                midIntensity = intensity;
             }
+
             Serial.print(zone.label);
-            Serial.println(": OBJECT DETECTED");
+            Serial.print(": intensity = ");
+            Serial.println(intensity);
         }
     }
 }
@@ -328,7 +396,7 @@ void IRAM_ATTR onFeedbackTimerISR() {
 void startFeedbackTimer() {
     timerAlarmDisable(feedback_timer);  // Disable first to clear any pending interrupt
     timerWrite(feedback_timer, 0);      // Reset timer counter to 0
-    timerAlarmWrite(feedback_timer, 1000000, false);              // 1000000 us = 1000 ms
+    timerAlarmWrite(feedback_timer, feedback_duration, false);              // 1000000 us = 1000 ms
     timerAlarmEnable(feedback_timer);
 }
 
@@ -604,15 +672,14 @@ void loop() {
 
                 Serial.println("Averaged Grid, with depth " + String(depth) + ":");
                 dumpDataFrame(averagedGrid);
-        
-                // detect the distance in each sector (left, middle, right) -> (return intensity o)
-                // detectCloseObject(combinedGrid, 0, 5, "LEFT");
-                // detectCloseObject(combinedGrid, 5, 11, "MIDDLE");
-                // detectCloseObject(combinedGrid, 11, 16, "RIGHT");
 
+                uint8_t leftIntensity = 0;
+                uint8_t midIntensity = 0;
+                uint8_t rightIntensity = 0;
                 // detect close objects
-                detectCloseObject(averagedGrid);
-                
+                detectCloseObject(averagedGrid, leftIntensity, midIntensity, rightIntensity, 1000, 0.40);
+
+                // giveUserFeedback(leftIntensity, midIntensity, rightIntensity);
                 // store avoidance signal somewhere
                         
             }
