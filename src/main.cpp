@@ -160,15 +160,15 @@ void setup() {
 
 
     //start up test for outputs.
-    giveUserFeedback(50, 0, 0);
-    Serial.println("Left feedback 50");
-    delay(500);
-    giveUserFeedback(0, 0, 50);
-    Serial.println("Right feedback 50");
-    delay(500);
-    giveUserFeedback(0, 50, 0);
-    Serial.println("Middle feedback 50");
-    delay(500);
+    // giveUserFeedback(50, 0, 0);
+    // Serial.println("Left feedback 50");
+    // delay(500);
+    // giveUserFeedback(0, 0, 50);
+    // Serial.println("Right feedback 50");
+    // delay(500);
+    // giveUserFeedback(0, 50, 0);
+    // Serial.println("Middle feedback 50");
+    // delay(500);
 
 
 
@@ -481,7 +481,7 @@ void loop() {
         Serial.println();
         Serial.print("USER FEEDBACK timer");
         // update the intensity settings to give a new 100ms feedback pulse, every second.
-        giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
+        //giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
         echototal = 0;
         echocount = 0;
 
