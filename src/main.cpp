@@ -10,53 +10,10 @@
 #include "tof.h"
 #include "echo_sensor.h"
 
-// setup built in NeoPixel
-#define NEOPIXEL_PIN 48  // 21 for old ESP32
-#define NUM_PIXELS 1
-Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
-
+// TOF sensors
 SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
 uint8_t numberOfSensors = 2;
 
-// for calling the feedback function every 1 second
-uint32_t previous_call = 0;
-#define feedback_interval 1000 // in milliseconds
-
-// for all feedback
-#define feedback_duration 100 // in milliseconds
-
-bool has_feedback = false;
-uint32_t feedbackstarttime = 0;
-
-// For speaker output
-#define LEFT_SPEAKER_PIN 10
-#define RIGHT_SPEAKER_PIN 9
-
-#define LEFT_SPEAKER_PWM_CHANNEL 0                          // LEDC channel 0 is used for controlling the speaker tone, not for leds
-#define RIGHT_SPEAKER_PWM_CHANNEL 1                         // LEDC channel 1 is used for controlling the right speaker tone
-#define LEFT_SPEAKER_PWM_RESOLUTION 8
-#define RIGHT_SPEAKER_PWM_RESOLUTION 8
-#define LEFT_SPEAKER_DEFAULT_DUTY 200
-#define RIGHT_SPEAKER_DEFAULT_DUTY 200
-#define MIN_FREQ 200
-#define MAX_FREQ 5000
-void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
-
-// Echosensor setup: trigpin, echopin
-EchoSensor echosensor(8, 1); // 8, 1
-uint16_t echoDistance = 0;
-unsigned long echototal = 0;
-uint8_t echocount = 0;
-
-// For vibration output
-#define LEFT_VIBRATION_PIN 13
-#define RIGHT_VIBRATION_PIN 11
-#define LEFT_VIBRATION_PWM_CHANNEL 2
-#define RIGHT_VIBRATION_PWM_CHANNEL 3
-#define LEFT_VIBRATION_PWM_RESOLUTION 8
-#define RIGHT_VIBRATION_PWM_RESOLUTION 8
-
-// setup two I2C busses.
 #define LPn_PIN_1 2
 #define SDA_PIN_1 4
 #define SCL_PIN_1 3
@@ -67,10 +24,6 @@ ToFSensor sensor1(&Wire, LPn_PIN_1, sensorSize, 1);
 #define SCL_PIN_2 5
 ToFSensor sensor2(&Wire1, LPn_PIN_2, sensorSize, 2);
 
-bool detectLeft = false;
-bool detectRight = false;
-bool detectMid = false;
-
 // data buffer
 uint8_t bufferIndex = 0;
 uint8_t bufferLength = 12;
@@ -79,11 +32,67 @@ std::vector<std::vector<uint16_t>> rawDataBuffer(
     bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
 );
 
+// LED: setup built in NeoPixel
+#define NEOPIXEL_PIN 48  // 21 for old ESP32
+#define NUM_PIXELS 1
+Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+// Echosensor setup: trigpin, echopin
+EchoSensor echosensor(8, 1); // 8, 1
+uint16_t echoDistance = 0;
+unsigned long echototal = 0;
+uint8_t echocount = 0;
+
+// Feedback
+#define LEFT_SPEAKER_PIN 10
+#define RIGHT_SPEAKER_PIN 9
+#define LEFT_VIBRATION_PIN 13
+#define RIGHT_VIBRATION_PIN 11
+
+#define PWM_RESOLUTION 8
+// duty= 200
+// min = 200 - 5000Hz frequency range
+
 uint8_t storedLeftIntensity = 0;
 uint8_t storedMidIntensity = 0;
 uint8_t storedRightIntensity = 0;
 
-void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
+unsigned long deltaTime = 0;
+unsigned long lastFeedbackUpdate = 0;
+const unsigned long feedbackUpdateInterval = 1000; // milliseconds
+const unsigned long feedbackDurationInterval = 100; // milliseconds
+bool feedbackIsOn = false;
+
+
+// void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
+
+void setupFeedback(){
+    // channel: 0 = speaker left, 1 = speaker right, 2 = vibration left, 3 = vibration right
+
+    pinMode(LEFT_SPEAKER_PIN, OUTPUT);
+    pinMode(RIGHT_SPEAKER_PIN, OUTPUT);
+    pinMode(LEFT_VIBRATION_PIN, OUTPUT);
+    pinMode(RIGHT_VIBRATION_PIN, OUTPUT);
+
+    ledcSetup(0, 1000, 8);
+    ledcAttachPin(LEFT_SPEAKER_PIN, 0);
+    ledcWrite(0, 0);
+
+    ledcSetup(1, 1000, 8);
+    ledcAttachPin(RIGHT_SPEAKER_PIN, 1);
+    ledcWrite(1, 0);
+
+    // right vibration setup
+    ledcSetup(2, 1000, 8);
+    ledcAttachPin(RIGHT_VIBRATION_PIN, 2);
+    ledcWrite(2, 0);
+
+    // left vibration setup
+    ledcSetup(3, 1000, 8);
+    ledcAttachPin(LEFT_VIBRATION_PIN, 3);
+    ledcWrite(3, 0);
+
+}
 
 void setupLed(){
     // NeoPixel setup
@@ -102,15 +111,7 @@ void setupLed(){
     pixels.show();
 }
 
-void setup() {
-    // serial setup
-    Serial.begin(115200);
-    delay(3000);
-    Serial.println("ESP32-S3 + VL53L7CX v1.0.3 + NeoPixel");
-    //while(!Serial);
-
-    setupLed();
-
+void setupTOF(){
     // init TOF sensors
     // I2C: sda=5, scl=6
     Wire.begin(SDA_PIN_1, SCL_PIN_1);
@@ -135,74 +136,26 @@ void setup() {
         delay(2000);
         esp_restart();
     }
+}
 
+void setup() {
+    // serial setup
+    Serial.begin(115200);
+    delay(3000);
+    Serial.println("ESP32-S3 + VL53L7CX v1.0.3 + NeoPixel");
+    //while(!Serial);
 
-    // speaker setup
-    pinMode(LEFT_SPEAKER_PIN, OUTPUT);
-    ledcSetup(LEFT_SPEAKER_PWM_CHANNEL, 1000, LEFT_SPEAKER_PWM_RESOLUTION);
-    ledcAttachPin(LEFT_SPEAKER_PIN, LEFT_SPEAKER_PWM_CHANNEL);
-    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-    pinMode(RIGHT_SPEAKER_PIN, OUTPUT);
-    ledcSetup(RIGHT_SPEAKER_PWM_CHANNEL, 1000, RIGHT_SPEAKER_PWM_RESOLUTION);
-    ledcAttachPin(RIGHT_SPEAKER_PIN, RIGHT_SPEAKER_PWM_CHANNEL);
-    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+    setupFeedback();
+    setupLed();
+    setupTOF();
 
-
-    // vibration setup
-    pinMode(LEFT_VIBRATION_PIN, OUTPUT);
-    ledcSetup(LEFT_VIBRATION_PWM_CHANNEL, 1000, LEFT_VIBRATION_PWM_RESOLUTION);
-    ledcAttachPin(LEFT_VIBRATION_PIN, LEFT_VIBRATION_PWM_CHANNEL);
-    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
-    pinMode(RIGHT_VIBRATION_PIN, OUTPUT);
-    ledcSetup(RIGHT_VIBRATION_PWM_CHANNEL, 1000, RIGHT_VIBRATION_PWM_RESOLUTION);
-    ledcAttachPin(RIGHT_VIBRATION_PIN, RIGHT_VIBRATION_PWM_CHANNEL);
-    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
-
-
-    //start up test for outputs.
-    // giveUserFeedback(50, 0, 0);
-    // Serial.println("Left feedback 50");
-    // delay(500);
-    // giveUserFeedback(0, 0, 50);
-    // Serial.println("Right feedback 50");
-    // delay(500);
-    // giveUserFeedback(0, 50, 0);
-    // Serial.println("Middle feedback 50");
-    // delay(500);
-
-
-
-//     echosensor.begin();
-//     echosensor.trigger();
-//     while (1) {
-//         if(echosensor.newDataAvailable()) {
-//             if (echosensor.timedOut()) {
-//                 Serial.println("Echo Sensor: No object detected within range.");
-//             } else {
-//                 echoDistance = echosensor.getDistanceCM();
-//                 Serial.print("Echo Sensor Distance: ");
-//                 Serial.print(echoDistance);
-//                 Serial.println(" cm");
-//             }
-//             echosensor.trigger();
-//         }
-//     }
-
-
-    pixels.setPixelColor(0, pixels.Color(0, 255, 0));  // Green
+    pixels.setPixelColor(0, pixels.Color(0, 255, 0));
     pixels.show();
-    previous_call = millis();
 }
 
 uint8_t distanceToIntensity(uint16_t distance) {
     if (distance == 0) return 0;
-
-    if (distance <= 200) return 100;
-    else if (distance <= 400) return 80;
-    else if (distance <= 600) return 60;
-    else if (distance <= 800) return 40;
-    else if (distance <= 1000) return 20;
-    else return 0;
+    return map(distance, 0, 1000, 100, 0); // linear mapping from 0-1000mm to 100-0 intensity
 }
 
 void detectCloseObject(
@@ -228,6 +181,8 @@ void detectCloseObject(
         { "RIGHT",  6, 8 }
     };
 
+    
+    // Serial.println();
     for (const Zone &zone : zones) {
         int count = 0;
         int total = 0;
@@ -259,14 +214,16 @@ void detectCloseObject(
                 storedMidIntensity = intensity;
             }
 
-            Serial.print(zone.label);
-            Serial.print(": intensity = ");
-            Serial.println(intensity);
+            // Serial.print(zone.label);
+            // Serial.print(": = ");
+            // Serial.print(intensity);
+            // Serial.print(", ");
         }
     }
 }
 
 void dumpDataFrame(const std::vector<uint16_t> &data) {
+    // utility function to print the data frame in a readable format for debugging.
     Serial.println("Data Frame:");
     uint8_t cols = (sensorSize == SIZE_8X8) ? 8 : 4;
     uint8_t rowLength = cols * numberOfSensors;
@@ -280,53 +237,8 @@ void dumpDataFrame(const std::vector<uint16_t> &data) {
     }
 }
 
-// Give user feedback based on the detected distance in each sector (left, middle, right). Values can range from 0 (no feedback) to 100 (most intense feedback).
-void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity) {
-    leftIntensity = max(leftIntensity, middleIntensity);
-    rightIntensity = max(rightIntensity, middleIntensity);
-
-    if (leftIntensity == 0 && rightIntensity == 0) {
-        return;
-    }
-    bool hasActivity = false;
-
-    // SPEAKER
-    // Map intensity to an audible frequency range.
-    // Higher intensity produces a higher pitched tone.
-    uint32_t leftFreq = 0;
-    uint32_t rightFreq = 0;
-    if (leftIntensity) leftFreq = map(leftIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
-    if (rightIntensity) rightFreq = map(rightIntensity, 0, 100, MIN_FREQ, MAX_FREQ);
-    if (leftFreq || rightFreq) {
-        if (leftFreq) {
-            ledcWriteTone(LEFT_SPEAKER_PWM_CHANNEL, leftFreq);
-            ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, LEFT_SPEAKER_DEFAULT_DUTY);
-        } else ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-
-        if (rightFreq) {
-            ledcWriteTone(RIGHT_SPEAKER_PWM_CHANNEL, rightFreq);
-            ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, RIGHT_SPEAKER_DEFAULT_DUTY);
-        } else ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-
-        hasActivity = true;
-        has_feedback = true;
-        feedbackstarttime = millis();
-    }
-
-    // VIBRATION
-    uint8_t leftvibration = map(leftIntensity, 0, 100, 50, 255);        // below 50 the vibration motor will not work
-    uint8_t rightvibration = map(rightIntensity, 0, 100, 50, 255);
-    if (leftIntensity || rightIntensity) {
-        if (leftIntensity) ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, leftvibration);
-        if (rightIntensity) ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, rightvibration);
-        hasActivity = true;
-        has_feedback = true;
-        feedbackstarttime = millis();
-    }
-}
-
-// CHANGED COMBINE GRID TO MAKE DATA FRAME HORIZONTAL
 void combineGrid(const std::vector<uint16_t> &grid1, const std::vector<uint16_t> &grid2, std::vector<uint16_t> &combined) {
+    // combine two smaller grids into one larger grid. (e.g. 4x4 + 4x4 -> 8x4)
     uint8_t cols = (sensorSize == SIZE_8X8) ? 8 : 4;
     uint8_t rows = sensorSize / cols;
 
@@ -397,17 +309,65 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
     }
 }
 
+void mapIntensityToDuty(uint8_t &left, uint8_t &right, uint8_t leftintensity, uint8_t midintensity, uint8_t rightintensity) {
+    // filter out to low values
+    if(leftintensity <= 0 && midintensity <= 0 && rightintensity <= 0) {
+        left = 0;
+        right = 0;
+        return;
+    }
+
+    // convert intensity percentage to duty cycle (0-255)
+    leftintensity = map(leftintensity, 0, 100, 50, 255);
+    midintensity = map(midintensity, 0, 100, 50, 255);
+    rightintensity = map(rightintensity, 0, 100, 50, 255);
+
+    uint8_t maxIntensity = max(leftintensity, max(midintensity, rightintensity));
+
+    if(maxIntensity == leftintensity){
+        // it is left
+        left = leftintensity;
+        right = 0;
+        Serial.println("LEFT");
+        Serial.print(leftintensity);
+        return;
+    } else if (maxIntensity == rightintensity){
+        // it is right
+        left = 0;
+        right = rightintensity;
+        Serial.println("RIGHT");
+        Serial.print(rightintensity);
+        return;
+    } else {
+        // it was the middle
+        left = midintensity;
+        right = midintensity;
+        Serial.println("MIDDLE");
+        Serial.print(midintensity);
+        return;
+    }
+}
+
+void writeFeedback(uint8_t left, uint8_t right){
+    // write to pwm channels
+    // speakers
+    // ledcWrite(0, left);
+    // ledcWrite(1, right);
+
+    // vibration
+    ledcWrite(2, left);
+    ledcWrite(3, right);
+}
+
 void loop() {
     bool sensor1Ready = sensor1.getSensorReady();
     bool sensor2Ready = sensor2.getSensorReady();
 
     // if both sensors are ready, process the data.
     if (sensor1Ready && sensor2Ready) {
-        Serial.println("both tof sensors ready");
-    //if (sensor2Ready) {
         
+
         const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
-        //const std::vector<uint16_t> &data1_ref = sensor2.fetchRawData();
         const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
 
         // dump data frame
@@ -439,12 +399,8 @@ void loop() {
 
         // Serial.println("Averaged Grid, with depth " + String(depth) + ":");
         // dumpDataFrame(averagedGrid);
-
         
-        // detect close objects
-        // write to pointer of local
- 
-        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.40);
+        detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.70);
     }
       
     // read echo sensor data (non-blocking)
@@ -459,33 +415,37 @@ void loop() {
         echosensor.trigger();
     }
 
-    // give user feedback
-    if (has_feedback  && (millis() - feedbackstarttime >= feedback_duration || feedbackstarttime > millis())) {     // also account for millis() overflow
-        has_feedback = false;
-        ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-        ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
-        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+    // time since last feedback update
+    deltaTime = millis() - lastFeedbackUpdate;
+
+    // write feedback value every 1sec
+    if (deltaTime >= feedbackUpdateInterval || lastFeedbackUpdate > millis()) {     // also account for millis() overflow
+        lastFeedbackUpdate = millis();
+        feedbackIsOn = true;
+
+        Serial.print("Update feedback values");
+        
+        uint8_t leftDuty, rightDuty;
+        mapIntensityToDuty(leftDuty, rightDuty, storedLeftIntensity, storedMidIntensity, storedRightIntensity);
+        Serial.print("Left Duty: ");
+        Serial.print(leftDuty); 
+        Serial.print(", Right Duty: ");
+        Serial.println(rightDuty);
+        
+        writeFeedback(leftDuty, rightDuty);
+
+        // reset intensities after feedback is given
+        storedLeftIntensity = 0;
+        storedMidIntensity = 0;
+        storedRightIntensity = 0;
     }
 
-
-    if (millis() - previous_call >= feedback_interval || previous_call > millis()) {     // also account for millis() overflow
-        previous_call = millis();
-        
-        // convert echo reading
-        // uint16_t average_echo = (echocount > 0) ? (echototal / echocount) : 0;
-        // uint8_t echo_intensity = distanceToIntensity(average_echo * 10);
-
-        uint8_t echo_intensity = 0; 
-
-        Serial.println();
-        Serial.print("USER FEEDBACK timer");
-        // update the intensity settings to give a new 100ms feedback pulse, every second.
-        //giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
-        echototal = 0;
-        echocount = 0;
-
-        Serial.print("User feedback done");
+    // stop feedback after shorter duration
+    if(deltaTime > feedbackDurationInterval && feedbackIsOn || lastFeedbackUpdate > millis()) {     // also account for millis() overflow
+        // set left and right duty to zero to stop feedback
+        Serial.println("Stop feedback");
+        writeFeedback(0, 0);
+        feedbackIsOn = false;
     }
 
     delay(10); // Slow down the loop to prevent excessive polling
