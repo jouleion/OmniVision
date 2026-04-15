@@ -244,7 +244,7 @@ void detectCloseObject(
                 uint16_t val = grid[row * totalCols + col];
 
                 if (val == 0) continue;
-
+                if (val < minDist) minDist = val;                
                 total++;
                 if (val < threshold) count++;
             }
@@ -447,6 +447,7 @@ void loop() {
 
     // if both sensors are ready, process the data.
     if (sensor1Ready && sensor2Ready) {
+        Serial.println("both tof sensors ready");
     //if (sensor2Ready) {
         
         const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
@@ -486,7 +487,7 @@ void loop() {
         
         // detect close objects
         // write to pointer of local
-
+ 
         detectCloseObject(averagedGrid, storedLeftIntensity, storedMidIntensity, storedRightIntensity, 1000, 0.40);
     }
       
@@ -512,10 +513,14 @@ void loop() {
 
         uint8_t echo_intensity = 0; 
 
+        Serial.println();
+        Serial.print("USER FEEDBACK timer");
         // update the intensity settings to give a new 100ms feedback pulse, every second.
         giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
         echototal = 0;
         echocount = 0;
+
+        Serial.print("User feedback done");
     }
 }
 
