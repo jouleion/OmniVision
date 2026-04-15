@@ -19,16 +19,14 @@ SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
 uint8_t numberOfSensors = 2;
 
 // for calling the feedback function every 1 second
-unsigned long previous_call = 0;
+uint32_t previous_call = 0;
 #define feedback_interval 1000 // in milliseconds
 
 // for all feedback
-static hw_timer_t *feedback_timer = nullptr;
-void IRAM_ATTR onFeedbackTimerISR();
-void startFeedbackTimer();
-void stopFeedback();
-#define feedback_duration 100000 // in microseconds
-volatile bool feedbackTimerFired = false;
+#define feedback_duration 100 // in milliseconds
+
+bool has_feedback = false;
+uint32_t feedbackstarttime = 0;
 
 // For speaker output
 #define LEFT_SPEAKER_PIN 10
@@ -84,7 +82,6 @@ std::vector<std::vector<uint16_t>> rawDataBuffer(
 uint8_t storedLeftIntensity = 0;
 uint8_t storedMidIntensity = 0;
 uint8_t storedRightIntensity = 0;
-volatile bool feedbackTimeout = false;
 
 void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
 
@@ -138,13 +135,6 @@ void setup() {
         delay(2000);
         esp_restart();
     }
-
-
-    // timer setup for speakers & vibration
-    feedback_timer = timerBegin(1, 80, true); // use timer 1 to avoid conflict with echo sensor timer 0
-    timerAttachInterrupt(feedback_timer, &onFeedbackTimerISR, true);
-    timerAlarmWrite(feedback_timer, 100000, false); // 100 ms
-    timerAlarmDisable(feedback_timer);
 
 
     // speaker setup
@@ -296,12 +286,9 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
     rightIntensity = max(rightIntensity, middleIntensity);
 
     if (leftIntensity == 0 && rightIntensity == 0) {
-        stopFeedback();
         return;
     }
-
     bool hasActivity = false;
-
 
     // SPEAKER
     // Map intensity to an audible frequency range.
@@ -322,8 +309,9 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
         } else ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
 
         hasActivity = true;
+        has_feedback = true;
+        feedbackstarttime = millis();
     }
-
 
     // VIBRATION
     uint8_t leftvibration = map(leftIntensity, 0, 100, 50, 255);        // below 50 the vibration motor will not work
@@ -332,40 +320,9 @@ void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t ri
         if (leftIntensity) ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, leftvibration);
         if (rightIntensity) ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, rightvibration);
         hasActivity = true;
+        has_feedback = true;
+        feedbackstarttime = millis();
     }
-
-
-    // Start timer only once, after all pins are written
-    if (hasActivity) {
-        startFeedbackTimer();
-    }
-}
-
-void IRAM_ATTR onFeedbackTimerISR() {
-    // ISR: avoid calling non-ISR-safe functions (like ledcWrite) here.
-    // Set a flag and disable the alarm; main loop will handle stopping outputs.
-    feedbackTimerFired = true;
-    timerAlarmDisable(feedback_timer);
-}
-
-void startFeedbackTimer() {
-    timerAlarmDisable(feedback_timer);  // Disable first to clear any pending interrupt
-    timerWrite(feedback_timer, 0);      // Reset timer counter to 0
-    timerAlarmWrite(feedback_timer, feedback_duration, false);              // 100000 us = 100 ms
-    timerAlarmEnable(feedback_timer);
-}
-
-void stopFeedback() {
-    #ifdef SPEAKER_OUTPUT
-    ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-    ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-    #endif
-    #ifdef VIBRATION_OUTPUT
-    ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
-    ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
-    #endif
-    timerAlarmDisable(feedback_timer);
-    timerWrite(feedback_timer, 0);      // Reset timer counter
 }
 
 // CHANGED COMBINE GRID TO MAKE DATA FRAME HORIZONTAL
@@ -441,19 +398,6 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
 }
 
 void loop() {
-    // if ISR signalled, stop outputs here (safe context)
-    if (feedbackTimerFired) {
-        #ifdef SPEAKER_OUTPUT
-        ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
-        ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
-        #endif
-        #ifdef VIBRATION_OUTPUT
-        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
-        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
-        #endif
-        feedbackTimerFired = false;
-        Serial.println("USER FEEDBACK timer: stopped outputs (handled in loop)");
-    }
     bool sensor1Ready = sensor1.getSensorReady();
     bool sensor2Ready = sensor2.getSensorReady();
 
@@ -516,6 +460,15 @@ void loop() {
     }
 
     // give user feedback
+    if (has_feedback  && (millis() - feedbackstarttime >= feedback_duration || feedbackstarttime > millis())) {     // also account for millis() overflow
+        has_feedback = false;
+        ledcWrite(LEFT_SPEAKER_PWM_CHANNEL, 0);
+        ledcWrite(RIGHT_SPEAKER_PWM_CHANNEL, 0);
+        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+    }
+
+
     if (millis() - previous_call >= feedback_interval || previous_call > millis()) {     // also account for millis() overflow
         previous_call = millis();
         
@@ -528,16 +481,11 @@ void loop() {
         Serial.println();
         Serial.print("USER FEEDBACK timer");
         // update the intensity settings to give a new 100ms feedback pulse, every second.
-        //giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
+        giveUserFeedback(storedLeftIntensity, max(storedMidIntensity, echo_intensity), storedRightIntensity);
         echototal = 0;
         echocount = 0;
 
         Serial.print("User feedback done");
-    }
-
-    if (feedbackTimeout) {
-        feedbackTimeout = false;
-        stopFeedback();
     }
 
     delay(10); // Slow down the loop to prevent excessive polling
