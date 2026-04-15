@@ -1,7 +1,6 @@
 // #define DISABLE_TOF
 #define SPEAKER_OUTPUT
-#define DELAY_IN_LOOP
-
+// #define TEST_FEEDBACK
 #define USE_ECHO_SENSOR
 #define VIBRATION_OUTPUT
-#define TEST_MODE
+// #define TEST_MODE
