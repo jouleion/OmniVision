@@ -18,6 +18,10 @@ Adafruit_NeoPixel pixels(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 SensorSize sensorSize = SIZE_4X4; //SIZE_8X8;
 uint8_t numberOfSensors = 2;
 
+// for calling the feedback function every 1 second
+unsigned long previous_call = 0;
+#define feedback_interval 1000 // in milliseconds
+
 // for all feedback
 static hw_timer_t *feedback_timer = nullptr;
 void IRAM_ATTR onFeedbackTimerISR();
@@ -42,9 +46,11 @@ void startSpeakerTone(uint32_t leftFreq, uint32_t rightFreq);
 // Echosensor setup: trigpin, echopin
 EchoSensor echosensor(8, 1); // 8, 1
 uint16_t echoDistance = 0;
+unsigned long echototal = 0;
+uint8_t echocount = 0;
 
 // For vibration output
-#define LEFT_VIBRATION_PIN 12
+#define LEFT_VIBRATION_PIN 13
 #define RIGHT_VIBRATION_PIN 11
 #define LEFT_VIBRATION_PWM_CHANNEL 2
 #define RIGHT_VIBRATION_PWM_CHANNEL 3
@@ -74,8 +80,11 @@ std::vector<std::vector<uint16_t>> rawDataBuffer(
     bufferLength, std::vector<uint16_t>(sensorSize * numberOfSensors)
 );
 
-void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
+uint8_t leftIntensity = 0;
+uint8_t midIntensity = 0;
+uint8_t rightIntensity = 0;
 
+void giveUserFeedback(uint8_t leftIntensity, uint8_t middleIntensity, uint8_t rightIntensity);
 
 void setupLed(){
     // NeoPixel setup
@@ -156,48 +165,39 @@ void setup() {
     ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
 #endif
 
-// #if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
-    // giveUserFeedback(100, 0, 0);
-    // Serial.println("Left feedback 100");
-    // delay(1000);
-    // giveUserFeedback(100, 0, 0);
-    // Serial.println("Left feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 0, 100);
-    // Serial.println("Right feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 0, 100);
-    // Serial.println("Right feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 100, 0);
-    // Serial.println("Middle feedback 100");
-    // delay(1000);
-    // giveUserFeedback(0, 100, 0);
-    // Serial.println("Middle feedback 100");
-    // delay(1000);
-// #endif
-
-#ifdef USE_ECHO_SENSOR
-    echosensor.begin();
-    echosensor.trigger();
-    while (1) {
-        if(echosensor.newDataAvailable()) {
-            if (echosensor.timedOut()) {
-                Serial.println("Echo Sensor: No object detected within range.");
-            } else {
-                echoDistance = echosensor.getDistanceCM();
-                Serial.print("Echo Sensor Distance: ");
-                Serial.print(echoDistance);
-                Serial.println(" cm");
-            }
-            echosensor.trigger();
-        }
-    }
-    esp_restart();
+#if defined(SPEAKER_OUTPUT) || defined(VIBRATION_OUTPUT)
+    giveUserFeedback(50, 0, 0);
+    Serial.println("Left feedback 50");
+    delay(500);
+    giveUserFeedback(0, 0, 50);
+    Serial.println("Right feedback 50");
+    delay(500);
+    giveUserFeedback(0, 50, 0);
+    Serial.println("Middle feedback 50");
+    delay(500);
 #endif
+
+// #ifdef USE_ECHO_SENSOR
+//     echosensor.begin();
+//     echosensor.trigger();
+//     while (1) {
+//         if(echosensor.newDataAvailable()) {
+//             if (echosensor.timedOut()) {
+//                 Serial.println("Echo Sensor: No object detected within range.");
+//             } else {
+//                 echoDistance = echosensor.getDistanceCM();
+//                 Serial.print("Echo Sensor Distance: ");
+//                 Serial.print(echoDistance);
+//                 Serial.println(" cm");
+//             }
+//             echosensor.trigger();
+//         }
+//     }
+// #endif
 
     pixels.setPixelColor(0, pixels.Color(0, 255, 0));  // Green
     pixels.show();
+    previous_call = millis();
 }
 
 // DETECTION CODE------------------------------------------------------------------------------------------------
@@ -506,74 +506,207 @@ void avarageGrid(std::vector<uint16_t> &averagedGrid, uint8_t depth) {
 }
 #endif
 
+#ifdef TEST_MODE
+
+void vibrate_motor_test() {
+    Serial.println("Testing vibration motors...");
+    for (int i = 0; i < 3; ++i) {
+        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 255);
+        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 255);
+        delay(500);
+        ledcWrite(LEFT_VIBRATION_PWM_CHANNEL, 0);
+        ledcWrite(RIGHT_VIBRATION_PWM_CHANNEL, 0);
+        delay(500);
+    }
+}
+
+void buzzer_test() {
+    Serial.println("Testing speakers...");
+    for (int i = 0; i < 3; ++i) {
+        startSpeakerTone(1000, 1000);
+        delay(500);
+        stopFeedback();
+        delay(500);
+    }
+}
+
+void printGrid(const std::vector<uint16_t> &data, uint8_t cols) {
+    for (size_t i = 0; i < data.size(); ++i) {
+        Serial.printf("%5d ", data[i]);
+        if ((i + 1) % cols == 0) Serial.println();
+    }
+}
+
+void bruteForceTuning(){
+    Serial.println("---------------------START: Test Begin---------------------");
+    const uint8_t NUM_MEASUREMENTS = 10;
+    int frequencies[] = {1, 5, 15, 30, 45, 60, 120};
+    int integrationTimes[] = {1, 2, 5, 10, 20};
+    int sharpenerPercents[] = {0, 20, 50, 80, 100};
+
+    for (int freq : frequencies) {
+        for (int inter : integrationTimes) {
+            for (int sharp : sharpenerPercents) {
+                Serial.println("-----------------------------");
+                Serial.print("FREQ="); Serial.print(freq);
+                Serial.print("INTER="); Serial.print(inter);
+                Serial.print("SHARP="); Serial.println(sharp);
+                Serial.println("-----------------------------");
+
+                // reinit sensor
+                bool sensor1Ok = sensor1.begin(sensorSize, freq, inter, sharp);
+                bool sensor2Ok = sensor2.begin(sensorSize, freq, inter, sharp);
+
+                if (!sensor1Ok || !sensor2Ok) {
+                    Serial.println("ERROR: sensor init failed");
+                    continue;
+                }
+
+                // x measurements (output to serial)
+                uint8_t count = 0;
+                uint32_t startMs = millis();
+                const uint32_t TIMEOUT_MS = 10000;
+
+                while(count < NUM_MEASUREMENTS) {
+                    if (millis() - startMs > TIMEOUT_MS) {
+                        Serial.println("TIMEOUT waiting for measurements");
+                        break;
+                    }
+
+                    bool s1Ready = sensor1.getSensorReady();
+                    bool s2Ready = sensor2.getSensorReady();
+
+                    if (s1Ready && s2Ready) {
+                        const std::vector<uint16_t> &d1 = sensor1.fetchRawData();
+                        const std::vector<uint16_t> &d2 = sensor2.fetchRawData();
+
+                        uint8_t cols = (sensorSize == SIZE_8X8) ? 8 : 4;
+
+                        Serial.print("FRAME "); Serial.print(count + 1); Serial.println(":");
+                        Serial.println("  S1:");
+                        printGrid(d1, cols);
+                        Serial.println("  S2:");
+                        printGrid(d2, cols);
+
+                        count++;
+                    }
+                }
+
+                Serial.print("DONE: "); 
+                Serial.print(count);
+                Serial.println(" measurements collected");
+            }
+        }
+    }
+    Serial.println("---------------------DONE: Test Complete---------------------");
+}
+#endif 
 
 
 void loop() {
-    bool sensor1Ready = sensor1.getSensorReady();
-    bool sensor2Ready = sensor2.getSensorReady();
+    // try to do a measurement
+    #ifdef test_feedback
+        giveUserFeedback(0, 0, 100);
+        Serial.println("Right feedback 100");
+        delay(1000);
+        giveUserFeedback(0, 0, 50);
+        Serial.println("Right feedback 50");
+        delay(1000);
+        giveUserFeedback(0, 0, 1);
+        Serial.println("Right feedback 1");
+        delay(5000);
+        giveUserFeedback(100, 0, 0);
+        Serial.println("Left feedback");
+        delay(5000);
+        giveUserFeedback(0, 100, 0);
+        Serial.println("Middle feedback");
+        delay(5000);
+        Serial.println("No feedback");
+    #endif
+    #ifdef TEST_MODE
+        vibrate_motor_test();
+        buzzer_test();
+        #ifndef DISABLE_TOF
+            bruteForceTuning();
+        #endif
+        while(true);
+    #else
+        #ifndef DISABLE_TOF
+            bool sensor1Ready = sensor1.getSensorReady();
+            bool sensor2Ready = sensor2.getSensorReady();
 
-    // if both sensors are ready, process the data.
-    if (sensor1Ready && sensor2Ready) {
-    //if (sensor2Ready) {
-        
-        const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
-        //const std::vector<uint16_t> &data1_ref = sensor2.fetchRawData();
-        const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
-
-        // dump data frame
-        // Serial.println("Sensor 1:");
-        // dumpDataFrame(data1_ref);
-
-        // Serial.println("Sensor 2:");
-        // dumpDataFrame(data2_ref);
-
-        // create larger grid
-        // 128x2 or 32x2 length
-        uint8_t combinedLength = sensorSize * numberOfSensors;  
-        std::vector<uint16_t> combinedGrid(combinedLength);
-
-        // double check size of data
-        if (data1_ref.size() == sensorSize && data2_ref.size() == sensorSize) {
-            // combine data into one grid. (pass combinedGrid by reference)
-            combineGrid(data1_ref, data2_ref, combinedGrid);
-
-            // move into the buffer to avoid copying element-by-element
-            addToRawBuffer(std::move(combinedGrid));
-        }
-
-        // rolling average over all the frames -> (average Grid)
-        // how many frame to average since last frame.
-        const uint8_t depth = bufferLength; 
-        std::vector<uint16_t> averagedGrid(combinedLength);
-        avarageGrid(averagedGrid, depth);
-
-        Serial.println("Averaged Grid, with depth " + String(depth) + ":");
-        dumpDataFrame(averagedGrid);
-
-        uint8_t leftIntensity = 0;
-        uint8_t midIntensity = 0;
-        uint8_t rightIntensity = 0;
-        // detect close objects
-        detectCloseObject(averagedGrid, leftIntensity, midIntensity, rightIntensity, 1000, 0.40);
-
-        // giveUserFeedback(leftIntensity, midIntensity, rightIntensity);
-        // store avoidance signal somewhere
+            // if both sensors are ready, process the data.
+            if (sensor1Ready && sensor2Ready) {
+            //if (sensor2Ready) {
                 
-    }          
+                const std::vector<uint16_t> &data1_ref = sensor1.fetchRawData();
+                //const std::vector<uint16_t> &data1_ref = sensor2.fetchRawData();
+                const std::vector<uint16_t> &data2_ref = sensor2.fetchRawData();
+
+                // dump data frame
+                // Serial.println("Sensor 1:");
+                // dumpDataFrame(data1_ref);
+
+                // Serial.println("Sensor 2:");
+                // dumpDataFrame(data2_ref);
+
+                // create larger grid
+                // 128x2 or 32x2 length
+                uint8_t combinedLength = sensorSize * numberOfSensors;  
+                std::vector<uint16_t> combinedGrid(combinedLength);
+
+                // double check size of data
+                if (data1_ref.size() == sensorSize && data2_ref.size() == sensorSize) {
+                    // combine data into one grid. (pass combinedGrid by reference)
+                    combineGrid(data1_ref, data2_ref, combinedGrid);
+
+                    // move into the buffer to avoid copying element-by-element
+                    addToRawBuffer(std::move(combinedGrid));
+                }
+
+                // rolling average over all the frames -> (average Grid)
+                // how many frame to average since last frame.
+                const uint8_t depth = bufferLength; 
+                std::vector<uint16_t> averagedGrid(combinedLength);
+                avarageGrid(averagedGrid, depth);
+
+                Serial.println("Averaged Grid, with depth " + String(depth) + ":");
+                dumpDataFrame(averagedGrid);
+
                 
-    // use distance to give user feedback (intensity left, middle right)
-    // 0%, 0%, 100%
-    // pass stored avoidance signal.
-    if(echosensor.newDataAvailable()) {
-        if (echosensor.timedOut()) {
-            Serial.println("Echo Sensor: No object detected within range.");
-        } else {
-            echoDistance = echosensor.getDistanceCM();
-            Serial.print("Echo Sensor Distance: ");
-            Serial.print(echoDistance);
-            Serial.println(" cm");
-        }
-        echosensor.trigger();
+                // detect close objects
+                detectCloseObject(averagedGrid, leftIntensity, midIntensity, rightIntensity, 1000, 0.40);
+
+                // giveUserFeedback(leftIntensity, midIntensity, rightIntensity);
+                // store avoidance signal somewhere
+                        
+            }
+        #endif            
+                    
+            // use distance to give user feedback (intensity left, middle right)
+            // 0%, 0%, 100%
+            // pass stored avoidance signal.
+
+        #ifdef USE_ECHO_SENSOR
+            if(echosensor.newDataAvailable()) {
+                if (echosensor.timedOut()) {
+                    Serial.println("Echo Sensor: No object detected within range.");
+                } else {
+                    echoDistance = echosensor.getDistanceCM();
+                    echocount++;
+                    echototal = echototal + echoDistance;
+                }
+                echosensor.trigger();
+            }
+        #endif
+    #endif
+    if (millis() - previous_call >= feedback_interval || previous_call > millis()) {     // also account for millis() overflow
+        previous_call = millis();
+        uint16_t average_echo = (echocount > 0) ? (echototal / echocount) : 0;
+        uint8_t echo_intensity = distanceToIntensity(average_echo * 10);
+        giveUserFeedback(leftIntensity, max(midIntensity, echo_intensity), rightIntensity);
+        echototal = 0;
+        echocount = 0;
     }
 }
 
