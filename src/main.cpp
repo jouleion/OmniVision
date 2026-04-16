@@ -377,17 +377,27 @@ void writeFeedback(uint8_t left, uint8_t right){
     // write to pwm channels
     // speakers
 
-    uint8_t left_f = map(left, 0, 255, 4000, 500); 
+    uint8_t left_f = map(left, 0, 255, 500, 4000); 
     ledcWriteTone(0, left_f);
     ledcWrite(0, left);
 
-    uint8_t right_f = map(right, 0, 255, 4000, 500);
+    uint8_t right_f = map(right, 0, 255, 500, 4000);
     ledcWriteTone(1, right_f);
     ledcWrite(1, right);
 
     // vibration
-    // ledcWrite(2, left); // problem boi
-    // ledcWrite(3, right);
+    if(left > 180){
+        ledcWrite(2, left / 2); // problem boi
+    }
+    if(right > 180){
+        ledcWrite(3, right / 2);
+    }
+    if(left == 0){
+        ledcWrite(2, 0);
+    }
+    if(right == 0){
+        ledcWrite(3, 0);
+    }
 }
 
 void loop() {
