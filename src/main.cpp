@@ -50,11 +50,11 @@ uint8_t echocount = 0;
 #define RIGHT_VIBRATION_PIN 15
 
 
-#define TOF_F 45
+#define TOF_F 20
 #define TOF_IT 10
 #define TOF_SP 70
 
-#define MIN_DISTANCE 500
+#define MIN_DISTANCE 750
 #define DISTANCE_THRESHOLD 0.6
 
 #define PWM_RESOLUTION 8
@@ -339,11 +339,12 @@ void mapIntensityToDuty(uint8_t &left, uint8_t &right, uint8_t leftintensity, ui
     }
 
     // if echo returns a really low value, it should override all tof readings.
-    // uint8_t sound = map(echoDistance, 0, MIN_DISTANCE, 255, 0);
-
+    uint8_t sound = map(echoDistance * 10, 0, MIN_DISTANCE, 255, 0);
+    if (echoDistance * 10 > MIN_DISTANCE) sound = 0;
+    
     // convert intensity percentage to duty cycle (0-255)
     leftintensity = map(leftintensity, 0, 100, 50, 255);
-    midintensity = map(midintensity, 0, 100, 50, 255);
+    midintensity = map(max(midintensity, sound), 0, 100, 50, 255);
     rightintensity = map(rightintensity, 0, 100, 50, 255);
 
     uint8_t maxIntensity = max(leftintensity, max(midintensity, rightintensity));
@@ -376,17 +377,27 @@ void writeFeedback(uint8_t left, uint8_t right){
     // write to pwm channels
     // speakers
 
-    uint8_t left_f = map(left, 0, 255, 4000, 500); 
+    uint8_t left_f = map(left, 0, 255, 500, 4000); 
     ledcWriteTone(0, left_f);
     ledcWrite(0, left);
 
-    uint8_t right_f = map(right, 0, 255, 4000, 500);
+    uint8_t right_f = map(right, 0, 255, 500, 4000);
     ledcWriteTone(1, right_f);
     ledcWrite(1, right);
 
     // vibration
-    // ledcWrite(2, left); // problem boi
-    // ledcWrite(3, right);
+    if(left > 180){
+        ledcWrite(2, left / 2); // problem boi
+    }
+    if(right > 180){
+        ledcWrite(3, right / 2);
+    }
+    if(left == 0){
+        ledcWrite(2, 0);
+    }
+    if(right == 0){
+        ledcWrite(3, 0);
+    }
 }
 
 void loop() {
@@ -473,7 +484,8 @@ void loop() {
         // Serial.print("Update feedback values");
         
         uint8_t leftDuty, rightDuty;
-        mapIntensityToDuty(leftDuty, rightDuty, storedLeftIntensity, storedMidIntensity, storedRightIntensity, echoDistance);
+        uint16_t echo_avg = (echocount > 0) ? (echototal / echocount) : 0; // average echo distance
+        mapIntensityToDuty(leftDuty, rightDuty, storedLeftIntensity, storedMidIntensity, storedRightIntensity, echo_avg);
         Serial.print("Left Duty: ");
         Serial.print(leftDuty); 
         Serial.print(", Right Duty: ");
@@ -500,4 +512,3 @@ void loop() {
 
     // delay(1000);
 }
-
