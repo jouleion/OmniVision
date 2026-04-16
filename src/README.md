@@ -1,41 +1,84 @@
-# FreeRTOS in the /cpp Folder
+# OmniVision Project
 
-This folder contains the implementation of tasks using FreeRTOS for an Arduino-based project. FreeRTOS is a real-time operating system that allows multitasking by creating and managing multiple tasks.
+## Overview
+The OmniVision project is designed to utilize an ESP32-S3 Mini microcontroller to integrate various hardware components and provide a robust system for object detection and feedback. This document provides an overview of the hardware setup and the C++ implementation.
 
-## Key Concepts
+---
 
-- **Tasks**: Independent threads of execution. Each task runs in its own context and can be assigned a priority.
-- **pvParameters**: A pointer passed to a task during its creation. It can be used to pass data to the task. If there are no parameters, use NULL.
-- **vTaskDelay**: A FreeRTOS function to block the current task for a specified time, allowing other tasks to execute.
-- **portTICK_PERIOD_MS**: A constant that defines the duration of one tick in milliseconds. It is used to convert time delays into ticks, which are the basic unit of time in FreeRTOS.
-- **Stack Depth**: The amount of stack memory allocated to a task, specified in words (not bytes). Each task requires its own stack to store local variables, function call information, and context during task switching. The value should be chosen based on the task's memory requirements.
+## Hardware Components
 
-## Variables in main.cpp
+### Microcontroller
+- **ESP32-S3 Mini**: A powerful microcontroller with an internal battery charger. Ensure the battery is turned on and connected via USB-C for charging.
 
-- **tofSensors**: A vector that holds multiple Time-of-Flight (TOF) sensor objects. Each sensor is initialized with a unique ID and pin number.
-- **numSensors**: The number of TOF sensors to initialize. This value determines the size of the `tofSensors` vector.
-- **pvParameters**: A parameter passed to tasks during their creation. It is currently unused (set to NULL) in this project.
-- **portTICK_PERIOD_MS**: Used in `vTaskDelay` to specify the delay time in milliseconds. For example, `vTaskDelay(100 / portTICK_PERIOD_MS)` delays the task for 100 milliseconds.
+### Sensors
+- **Time-of-Flight (ToF) Sensors**: Two VL53L7CX ToF sensors are used for precise distance measurement. These sensors operate in either 4x4 or 8x8 resolution modes.
+- **Echo Sensor**: HC-SR04 ultrasonic sensor for additional distance measurement.
 
-## Tasks in this Project
+### Feedback Devices
+- **Piezo Buzzers**: Two buzzers for audio feedback.
+- **Vibration Motors**: Two motors with transistor-based control and flyback diodes for haptic feedback.
 
-1. **TaskReadTOF**: Reads data from the Time-of-Flight (TOF) sensors.
-2. **TaskSendData**: Simulates sending data.
-3. **TaskProcessData**: Simulates processing data.
-4. **TaskActuation**: Simulates actuation based on processed data.
+### LED
+- **NeoPixel LED**: A single RGB LED for visual feedback.
 
-## How FreeRTOS Works
+---
 
-FreeRTOS uses a scheduler to manage task execution. Tasks with higher priority are executed first. If tasks have the same priority, they share CPU time in a round-robin fashion.
+## Pin Configuration
 
-## Example
+### ToF Sensors
+- **Sensor 1**: 
+  - LPn: Pin 2
+  - SDA: Pin 4
+  - SCL: Pin 3
+- **Sensor 2**: 
+  - LPn: Pin 7
+  - SDA: Pin 6
+  - SCL: Pin 5
 
-```cpp
-xTaskCreate(TaskReadTOF, "ReadTOF", 100, NULL, 1, NULL);
-```
-- `TaskReadTOF`: The function to execute as a task.
-- `"ReadTOF"`: A human-readable name for the task.
-- `100`: Stack size allocated for the task.
-- `NULL`: Pointer to parameters passed to the task (pvParameters).
-- `1`: Priority of the task.
-- `NULL`: Handle to the task (not used here).
+### Echo Sensor
+- **Trigger Pin**: Pin 8
+- **Echo Pin**: Pin 1
+
+### Feedback Devices
+- **Left Speaker**: Pin 10
+- **Right Speaker**: Pin 9
+- **Left Vibration Motor**: Pin 13
+- **Right Vibration Motor**: Pin 15
+
+### NeoPixel LED
+- **Data Pin**: Pin 48
+
+---
+
+## C++ Implementation
+
+### Key Features
+- **ToF Sensor Integration**: The `ToFSensor` class handles initialization, configuration, and data retrieval from the VL53L7CX sensors. It supports dynamic resolution and frequency adjustments.
+- **Echo Sensor Integration**: The `EchoSensor` class provides non-blocking distance measurements.
+- **Feedback Mechanism**: Audio and haptic feedback are controlled using PWM signals. The `writeFeedback` function maps intensity values to duty cycles and frequencies.
+- **Data Processing**: Includes functions for combining sensor grids, averaging frames, and detecting objects in specific zones (left, middle, right).
+- **LED Control**: The NeoPixel LED is used for status indication during initialization and error handling.
+
+### Code Structure
+- **`main.cpp`**: Contains the main application logic, including setup and loop functions.
+- **`tof.cpp` and `tof.h`**: Implements the `ToFSensor` class for ToF sensor management.
+- **`echo_sensor.cpp` and `echo_sensor.h`**: Implements the `EchoSensor` class for ultrasonic sensor management.
+- **`system_parameters.h`**: Defines system-wide constants and parameters.
+
+### Setup Functions
+- **`setupFeedback`**: Initializes PWM channels for speakers and vibration motors.
+- **`setupLed`**: Configures the NeoPixel LED.
+- **`setupTOF`**: Initializes the ToF sensors with appropriate I2C settings and resolution.
+
+### Loop Function
+The `loop` function handles:
+- Reading data from tof sensors.
+- Combine 2 frames into 1 frame
+- create data buffer
+- average buffer (cell wise average)
+- detect distance threshold
+- generate pwm signals (speaker & vibration motors)
+
+
+## Uploading software
+Please use platformio extension in VSCode to upload via serial. Please do not install platform arduino extension. platformio should work as is. Restart VSCode to troubleshoot.
